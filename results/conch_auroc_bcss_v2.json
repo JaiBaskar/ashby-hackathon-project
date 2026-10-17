@@ -1,0 +1,11 @@
+{
+  "metric": "tumor vs rest AUROC, zero-shot",
+  "auroc": 0.9619,
+  "n_tiles": 263,
+  "n_tumor": 143,
+  "seed": 1234,
+  "prompt_set": "v2",
+  "dataset": "BCSS (Amgad et al. 2019), TCGA breast",
+  "positive": "tumor (code 1)",
+  "n_rois": 29
+}

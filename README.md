@@ -27,6 +27,7 @@ All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 
 - **CONCH**: Lu, M.Y. et al. *A visual-language foundation model for computational pathology.* Nature Medicine 30, 863–874 (2024). Weights: `MahmoodLab/CONCH` on Hugging Face (gated; each user needs their own access).
 - **CRC-VAL-HE-7K** (tile set for the accuracy check): Kather, J.N. et al. *Predicting survival from colorectal cancer histology slides using deep learning: a retrospective multicenter study.* PLOS Medicine 16(1): e1002730 (2019). Zenodo record 1214456.
+- **BCSS** (breast regions for the second accuracy check): Amgad, M. et al. *Structured crowdsourcing enables convolutional segmentation of histology images.* Bioinformatics 35(18): 3461–3467 (2019). CC0 1.0; seeded subset fetched from the Hugging Face mirror `nabil-m/bcss` by `scripts/get_bcss.py`.
 - **OpenSlide**: Goode, A. et al. *OpenSlide: A vendor-neutral software foundation for digital pathology.* J Pathol Inform 4:27 (2013).
 - **Fonts**: Newsreader (Production Type) and IBM Plex Sans (IBM), both SIL Open Font License 1.1, bundled through the Fontsource packages.
 - Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.
