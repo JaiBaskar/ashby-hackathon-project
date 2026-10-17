@@ -6,6 +6,7 @@ A web app for the Ashby Hackathon (UIUC). Upload a photo or scan of an H&E biops
 
 - `frontend/`: the Next.js app (App Router, TypeScript, Tailwind CSS) that people use. It holds no ML.
 - `backend/`: a FastAPI service with all the ML logic in Python: reading slides (OpenSlide, Pillow), tiling, CONCH scoring and region ranking.
+- Request history: every analysis is recorded in Postgres (a Tiger Cloud service) when `DATABASE_URL` is set in `.env`, else in memory. Only job metadata and the result numbers are stored, never the image or its filename; images stay in `data/jobs/` on this machine. `/history` lists the requests as cards linking to their results.
 - The browser only talks to Next.js. Next.js forwards every `/api/*` request to FastAPI (`API_URL`, default `http://localhost:8000`), so both run as one site with no CORS setup.
 
 Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`, `.claude/CLAUDE.md`, `.claude/rules.md`.
@@ -19,6 +20,7 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 | `make dev` | Starts the app at http://localhost:3000 (Next.js, with FastAPI on :8000) |
 | `make test` | All fast tests: backend, Vitest and Playwright end-to-end. No GPU, internet or token needed (uses the demo model) |
 | `make test-e2e` | Only the Playwright flows; also saves screenshots to `reports/screenshots/` |
+| `make test-db` | Postgres store tests in a throwaway schema; needs `TEST_DATABASE_URL` |
 | `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`). On Delta: `scripts/test_real.sbatch` |
 
 All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
@@ -30,4 +32,5 @@ All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 - **BCSS** (breast regions for the second accuracy check): Amgad, M. et al. *Structured crowdsourcing enables convolutional segmentation of histology images.* Bioinformatics 35(18): 3461–3467 (2019). CC0 1.0; seeded subset fetched from the Hugging Face mirror `nabil-m/bcss` by `scripts/get_bcss.py`.
 - **OpenSlide**: Goode, A. et al. *OpenSlide: A vendor-neutral software foundation for digital pathology.* J Pathol Inform 4:27 (2013).
 - **Fonts**: Newsreader (Production Type) and IBM Plex Sans (IBM), both SIL Open Font License 1.1, bundled through the Fontsource packages.
-- Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.
+- **Tiger Cloud** (managed PostgreSQL/TimescaleDB) for request history, via psycopg 3.
+- Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI, psycopg; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.

@@ -1,6 +1,6 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// End-to-end runs against the real stack: FastAPI (uvicorn, the demo model from config.yaml) and a production
+// End-to-end runs against the real stack: FastAPI (uvicorn, always the demo model) and a production
 // Next.js build. Tests go through Next's port, so the /api rewrite is covered. Ports differ from `make dev`.
 const API_PORT = 8100
 const WEB_PORT = 3100
@@ -23,7 +23,9 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `${PYTHON} -m uvicorn --factory --app-dir ../backend tests.demo_app:create_app --host 127.0.0.1 --port ${API_PORT}`,
+      command: `${PYTHON} -m uvicorn --factory --app-dir ../backend project.api:create_app --host 127.0.0.1 --port ${API_PORT}`,
+      // Always the demo model (no token or weights needed), and never a real history database.
+      env: { PROJECT_MODEL: 'fake', DATABASE_URL: '' },
       url: `${API_URL}/docs`,
       reuseExistingServer: false,
       timeout: 60_000,

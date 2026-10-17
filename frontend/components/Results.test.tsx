@@ -124,6 +124,12 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
 
+test('shows when the request was created and the cancer type, when given', () => {
+  render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
+  expect(screen.getByText('Oct 17, 2026, 2:05 PM').tagName).toBe('TIME')
+  expect(screen.getByText('Cancer type').nextElementSibling).toHaveTextContent('Not identified yet')
+})
+
 describe('box size', () => {
   const fetchMock = vi.fn()
   beforeEach(() => {

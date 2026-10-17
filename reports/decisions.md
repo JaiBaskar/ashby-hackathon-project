@@ -129,6 +129,17 @@ One line each: decision + reason.
 - The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
 - The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
 
+## Request history (Postgres on Tiger Cloud)
+- Every analysis is recorded in a store: `PostgresStore` when `DATABASE_URL` is set (a Tiger Cloud DEV service, `ashby-prize` (id `yni5q7anm1`), shared tier, us-east-1), else `MemoryStore`. One contract test suite covers both (`backend/tests/test_store.py`; Postgres cases run with `make test-db` in a throwaway schema).
+- Privacy: the cloud gets only job metadata (id, created time, status, model, prompt set, cancer type) and the Result JSON (numbers, reasons, region boxes). Never the uploaded file, its filename or any image; a test uploads `MRN-4417-smith.png` and checks the name appears nowhere. Display and heatmap PNGs stay on this machine in `data/jobs/<id>/` (gitignored), so history links still work after a restart on the same machine.
+- `DATABASE_URL` set but unreachable → the server refuses to start (same rule as the model: no silent fallback). The error never echoes the URL, which may hold a password. Once running, a failed store write is logged and the result is still shown.
+- Rows left `running` by a crash are marked as errors on startup ("The server restarted during this analysis").
+- Image routes only touch the disk for 32-hex-character job ids, so a crafted id can't read other files.
+- Cancer type: the column, API field and card attribute exist but stay null and read "Not identified yet": the classifier is on hold while the model changes. Filling it in is one argument in `run_job` (`job.cancer_type`).
+- Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
+- The tile-score grid behind box resizing is also saved as `data/jobs/<id>/ranking.npz` (gitignored), so changing the box size still works for a job after a restart.
+- After the merge with the box-size work, `main` had `model: conch` in `config.yaml`. The API tests now force the demo model in their fixture, and Playwright starts FastAPI with `PROJECT_MODEL=fake` (a new override in `load_config`), so `make test` still needs no token, weights or GPU (AGENTS.md §7) while `make dev` uses CONCH.
+
 ## Free-form box
 - Users can draw their own rectangle on the slide ("Draw a box"), or turn a suggested region into one ("Adjust this box"), then move it and resize it from 8 handles, like a screenshot selection. Dragging a side past the opposite one flips the box. Arrow keys move it 16 display px, and Shift + arrow keys resize it from the bottom-right; from the keyboard, "Draw a box" places a best-region-sized box in the middle and focuses it.
 - `GET /api/jobs/{id}/measure?x=&y=&w=&h=` (display px) measures any rectangle from the job's stored tile scores; the model isn't run again. Each tile counts by the share of it the box covers, so the box needn't line up with the 128 µm grid. A box placed exactly on a suggested region gives that region's score, composition and tumor std (tested).
@@ -137,4 +148,4 @@ One line each: decision + reason.
 - Pointer drags measure once, on release; keyboard changes wait 300 ms after the last key. Only the latest request's answer is shown.
 - The free box is dashed (the suggestions are solid), with the same black outer outline, so it's distinguishable without color and keeps contrast on both stains.
 - jsdom has no `PointerEvent`; `vitest.setup.ts` adds a small MouseEvent-based stand-in for the drag tests.
-- Because `config.yaml` now says `model: conch`, the API tests and the Playwright server (`backend/tests/demo_app.py`) pin `model: fake`, so the fast suite still runs with no GPU, token or weights (AGENTS.md §7).
+- The image scale (µm/px) is saved with the tile scores in `ranking.npz`, so a free box still gets its size in µm after a restart; files saved before this fall back to `default_mpp`.

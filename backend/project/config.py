@@ -26,6 +26,8 @@ def load_config(path=None):
     if missing:
         raise ConfigError(f"{path} is missing required keys: {', '.join(missing)}")
     check_box_sizes(cfg, path)
+    if os.environ.get("PROJECT_MODEL"):  # e.g. the demo model for tests, whatever config.yaml says
+        cfg["model"] = os.environ["PROJECT_MODEL"]
     return with_prompt_set(cfg, cfg["prompt_set"])
 
 

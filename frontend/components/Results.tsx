@@ -7,6 +7,7 @@ import { boxLabel, pct } from '@/lib/format'
 import type { Rect } from './FreeBox'
 import FreeBoxPanel from './FreeBoxPanel'
 import RegionPanel from './RegionPanel'
+import RequestMeta from './RequestMeta'
 import SlideViewer from './SlideViewer'
 import { button, DemoBadge, ResearchNotice } from './ui'
 
@@ -41,7 +42,15 @@ function BoxSize({ sizes, value, loading, onChange }: { sizes: number[]; value: 
   )
 }
 
-export default function Results({ result: initial }: { result: Result }) {
+export default function Results({
+  result: initial,
+  meta,
+  timeZone,
+}: {
+  result: Result
+  meta?: { created_at?: string | null; cancer_type?: string | null }
+  timeZone?: string
+}) {
   const cache = useRef(new Map<number, RegionsAtSize>())
   const [boxUm, setBoxUm] = useState(initial.box_um)
   const [loading, setLoading] = useState(false)
@@ -204,6 +213,12 @@ export default function Results({ result: initial }: { result: Result }) {
           </Link>
         </div>
       </div>
+
+      {meta?.created_at && (
+        <div className="mt-4">
+          <RequestMeta createdAt={meta.created_at} cancerType={meta.cancer_type} timeZone={timeZone} />
+        </div>
+      )}
 
       {sizeError && (
         <p role="alert" className="mt-6 rounded-md border border-line bg-surface px-4 py-3 text-danger">

@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from project.config import REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
+from project.config import REPO_ROOT, REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
 
 
 def test_config_loads_with_every_required_key():
@@ -65,3 +65,10 @@ def test_bad_box_sizes_are_reported(tmp_path, sizes, message):
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ConfigError, match=message):
         load_config(path)
+
+
+def test_project_model_env_overrides_the_configured_model(monkeypatch):
+    monkeypatch.setenv("PROJECT_MODEL", "fake")
+    assert load_config()["model"] == "fake"
+    monkeypatch.delenv("PROJECT_MODEL")
+    assert load_config()["model"] == yaml.safe_load((REPO_ROOT / "config.yaml").read_text())["model"]

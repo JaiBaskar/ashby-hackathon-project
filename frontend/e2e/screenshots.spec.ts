@@ -63,6 +63,10 @@ for (const width of WIDTHS) {
         await page.getByRole('button', { name: 'Analyze slide' }).click()
         await expect(page.getByText('No tissue found in this image.')).toBeVisible({ timeout: 30_000 })
         await shoot(page, 'error', width, theme)
+
+        await page.goto('/history')
+        await expect(page.getByRole('link', { name: /Analysis/ }).first()).toBeVisible()
+        await shoot(page, 'history', width, theme)
       })
     })
   }
