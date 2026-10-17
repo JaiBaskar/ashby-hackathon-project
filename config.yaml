@@ -9,7 +9,7 @@ seed: 1234
 classes: [tumor, stroma, immune, necrosis, normal, fat_other]
 # prompt_set picks one entry of prompt_sets. v1 leans toward colon (mucosa, adenocarcinoma);
 # v2 is worded for any organ. Compared in results/conch_auroc_<dataset>_<set>.json (reports/decisions.md).
-prompt_set: v1
+prompt_set: v2
 prompt_sets:
   v1:
     tumor:
