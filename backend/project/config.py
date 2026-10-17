@@ -11,7 +11,7 @@ REQUIRED_KEYS = [
     "model", "seed", "classes", "prompt_set", "prompt_sets",
     "tile_px", "target_mpp", "default_mpp", "max_display_px", "max_upload_mb", "max_tiles",
     "tissue_min_saturation", "tissue_threshold", "batch_size",
-    "region_tiles", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths",
+    "region_tiles", "box_sizes_um", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths",
 ]
 
 
@@ -25,7 +25,21 @@ def load_config(path=None):
     missing = [k for k in REQUIRED_KEYS if k not in cfg]
     if missing:
         raise ConfigError(f"{path} is missing required keys: {', '.join(missing)}")
+    check_box_sizes(cfg, path)
+    if os.environ.get("PROJECT_MODEL"):  # e.g. the demo model for tests, whatever config.yaml says
+        cfg["model"] = os.environ["PROJECT_MODEL"]
     return with_prompt_set(cfg, cfg["prompt_set"])
+
+
+def check_box_sizes(cfg, path):
+    """Every offered box is a whole number of tiles, and the default box (region_tiles) is on offer."""
+    tile_um = cfg["tile_px"] * cfg["target_mpp"]
+    for size in cfg["box_sizes_um"]:
+        if size < tile_um or abs(size / tile_um - round(size / tile_um)) > 1e-9:
+            raise ConfigError(f"{path}: box size {size} µm is not a whole number of {tile_um:g} µm tiles")
+    default = cfg["region_tiles"] * tile_um
+    if default not in cfg["box_sizes_um"]:
+        raise ConfigError(f"{path}: box_sizes_um must include the default box, {default:g} µm (region_tiles)")
 
 
 def with_prompt_set(cfg, name):

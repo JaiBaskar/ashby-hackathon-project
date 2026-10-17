@@ -120,6 +120,15 @@ One line each: decision + reason.
 - This supersedes the Phase 7 note that `make test-real` didn't run: it now runs on this Mac (MPS) with the cached weights and `HF_HUB_OFFLINE=1`.
 - `v1` was then removed from `config.yaml` and the real-model tests, at the team's request, so `v2` is the only prompt set. Its wording is still in git history (commit `c62722d`). The `v1` result files are kept as the record of the comparison that retired it.
 
+## Box size utility
+- The results screen offers box sizes from `config.yaml` `box_sizes_um` (512, 1024, 2048 µm, shown as 0.5, 1 and 2 mm), so the box can match the punch or core that will be cut. The default stays `region_tiles: 4` (512 µm).
+- Changing size doesn't run the model again. Each job keeps its tile-score grid, tissue grid and scale; `GET /api/jobs/{id}/regions?box_um=…` re-ranks them with `region_tiles = box_um ÷ 128`. The tiles themselves stay 256 px at 0.5 µm/px: they're sized for the model, and the box only averages more or fewer of them.
+- Sizes are a fixed list, not free input: every box is a whole number of 128 µm tiles (checked when config loads), each size can be tested, and scores at one size stay comparable. A size not on the list is a 400 that names the ones on offer; a job that isn't done yet is a 409.
+- 512 µm is labeled "0.5 mm" in the picker; the region panel keeps the exact size ("512 µm square").
+- One size per ranking: boxes of different sizes are never mixed, because a small box can sit inside one tumor pocket and would always outscore a larger one.
+- The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
+- The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
+
 ## Request history (Postgres on Tiger Cloud)
 - Every analysis is recorded in a store: `PostgresStore` when `DATABASE_URL` is set (a Tiger Cloud DEV service, `ashby-prize` (id `yni5q7anm1`), shared tier, us-east-1), else `MemoryStore`. One contract test suite covers both (`backend/tests/test_store.py`; Postgres cases run with `make test-db` in a throwaway schema).
 - Privacy: the cloud gets only job metadata (id, created time, status, model, prompt set, cancer type) and the Result JSON (numbers, reasons, region boxes). Never the uploaded file, its filename or any image; a test uploads `MRN-4417-smith.png` and checks the name appears nowhere. Display and heatmap PNGs stay on this machine in `data/jobs/<id>/` (gitignored), so history links still work after a restart on the same machine.
@@ -128,3 +137,5 @@ One line each: decision + reason.
 - Image routes only touch the disk for 32-hex-character job ids, so a crafted id can't read other files.
 - Cancer type: the column, API field and card attribute exist but stay null and read "Not identified yet": the classifier is on hold while the model changes. Filling it in is one argument in `run_job` (`job.cancer_type`).
 - Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
+- The tile-score grid behind box resizing is also saved as `data/jobs/<id>/ranking.npz` (gitignored), so changing the box size still works for a job after a restart.
+- After the merge with the box-size work, `main` had `model: conch` in `config.yaml`. The API tests now force the demo model in their fixture, and Playwright starts FastAPI with `PROJECT_MODEL=fake` (a new override in `load_config`), so `make test` still needs no token, weights or GPU (AGENTS.md §7) while `make dev` uses CONCH.

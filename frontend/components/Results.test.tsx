@@ -1,6 +1,6 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { makeResult } from '@/test/fixtures'
+import { jsonResponse, makeResult, region } from '@/test/fixtures'
 import Results from './Results'
 
 // jsdom has no layout: give the slide image a rendered width we control.
@@ -128,4 +128,75 @@ test('shows when the request was created and the cancer type, when given', () =>
   render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
   expect(screen.getByText('Oct 17, 2026, 2:05 PM').tagName).toBe('TIME')
   expect(screen.getByText('Cancer type').nextElementSibling).toHaveTextContent('Not identified yet')
+})
+
+describe('box size', () => {
+  const fetchMock = vi.fn()
+  beforeEach(() => {
+    fetchMock.mockReset()
+    vi.stubGlobal('fetch', fetchMock)
+  })
+  afterEach(() => vi.unstubAllGlobals())
+
+  const sizes = () => within(screen.getByRole('radiogroup', { name: /box size/i })).getAllByRole('radio')
+  const bigRegions = () => [
+    region(1, 400, 400, 0.48, 0.03, ['Highest overall score of all candidates (0.43)'], 512),
+    region(2, 1200, 600, 0.4, 0.05, ['Tumor content is 8 points lower than the best region'], 512),
+  ]
+
+  test('offers the sizes from the result, in mm, with the current one checked', () => {
+    render(<Results result={makeResult()} />)
+    expect(sizes().map((r) => r.closest('label')?.textContent)).toEqual(['0.5 mm', '1 mm', '2 mm'])
+    expect(screen.getByRole('radio', { name: '0.5 mm' })).toBeChecked()
+  })
+
+  test('picking another size re-ranks through the API and redraws the boxes', async () => {
+    const note = 'Only 2 non-overlapping 8×8-tile regions are at least 90% on tissue, so 2 are shown instead of 5.'
+    fetchMock.mockResolvedValueOnce(jsonResponse({ box_um: 1024, regions: bigRegions(), note }))
+    render(<Results result={makeResult()} />)
+    await userEvent.click(boxes()[2])
+
+    await userEvent.click(screen.getByRole('radio', { name: '1 mm' }))
+    expect(fetchMock).toHaveBeenCalledWith('/api/jobs/abc/regions?box_um=1024', expect.anything())
+    expect(await screen.findByText(note)).toBeInTheDocument()
+    expect(boxes()).toHaveLength(2)
+    expect(screen.getByRole('radio', { name: '1 mm' })).toBeChecked()
+    // the selection goes back to the new best region, and the panel shows the new size
+    expect(boxes()[0]).toHaveAttribute('aria-pressed', 'true')
+    const panel = within(screen.getByRole('region', { name: /region details/i }))
+    expect(panel.getByRole('heading', { name: /region 1/i })).toBeInTheDocument()
+    expect(panel.getByTestId('size')).toHaveTextContent('1024 µm')
+    expect(boxes()[0]).toHaveStyle({ width: '256px', height: '256px' }) // 512 display px at half scale
+  })
+
+  test('going back to the original size uses the first result without a request', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ box_um: 1024, regions: bigRegions(), note: null }))
+    render(<Results result={makeResult()} />)
+    await userEvent.click(screen.getByRole('radio', { name: '1 mm' }))
+    await screen.findByRole('radio', { name: '1 mm', checked: true })
+    await userEvent.click(screen.getByRole('radio', { name: '0.5 mm' }))
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(boxes()).toHaveLength(5)
+  })
+
+  test('a failed re-rank keeps the current boxes and says why', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ detail: 'No analysis with this id. It may have expired.' }, 404))
+    render(<Results result={makeResult()} />)
+    await userEvent.click(screen.getByRole('radio', { name: '2 mm' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('No analysis with this id. It may have expired.')
+    expect(boxes()).toHaveLength(5)
+    expect(screen.getByRole('radio', { name: '0.5 mm' })).toBeChecked()
+  })
+
+  test('the size picker is disabled while a re-rank is loading', async () => {
+    let finish: (r: Response) => void = () => {}
+    fetchMock.mockReturnValueOnce(new Promise<Response>((resolve) => (finish = resolve)))
+    render(<Results result={makeResult()} />)
+    await userEvent.click(screen.getByRole('radio', { name: '1 mm' }))
+    expect(screen.getByRole('radiogroup', { name: /box size/i })).toHaveAttribute('aria-busy', 'true')
+    for (const r of sizes()) expect(r).toBeDisabled()
+    await act(async () => finish(jsonResponse({ box_um: 1024, regions: bigRegions(), note: null })))
+    expect(screen.getByRole('radiogroup', { name: /box size/i })).toHaveAttribute('aria-busy', 'false')
+    expect(boxes()).toHaveLength(2)
+  })
 })

@@ -2,7 +2,7 @@
 
 # fake | conch. conch needs a Hugging Face token (HF_TOKEN or `hf auth login`) from an account
 # that accepted the CONCH license. The server never falls back to fake on its own.
-model: fake
+model: conch
 seed: 1234
 
 # Zero-shot tissue classes, in output column order. Each class's score uses the mean of its prompts.
@@ -51,7 +51,10 @@ tissue_threshold: 0.5        # a tile is analyzed when at least this fraction is
 batch_size: 32
 
 # Regions and reasons
-region_tiles: 4              # a region is region_tiles x region_tiles tiles
+region_tiles: 4              # a region is region_tiles x region_tiles tiles (the default box, 512 µm)
+# Box sizes the results screen offers, in µm. Each is a whole number of tiles (tile_px × target_mpp = 128 µm)
+# and the default box must be one of them. Changing size re-ranks the stored tile scores; CONCH isn't re-run.
+box_sizes_um: [512, 1024, 2048]
 min_coverage: 0.9
 top_k: 5
 weights:

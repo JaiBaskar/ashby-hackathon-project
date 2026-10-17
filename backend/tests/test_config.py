@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from project.config import REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
+from project.config import REPO_ROOT, REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
 
 
 def test_config_loads_with_every_required_key():
@@ -46,3 +46,29 @@ def test_unknown_prompt_set_is_reported(tmp_path):
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ConfigError, match="v99"):
         load_config(path)
+
+
+def test_box_sizes_are_whole_tiles_and_include_the_default():
+    cfg = load_config()
+    tile_um = cfg["tile_px"] * cfg["target_mpp"]
+    assert cfg["box_sizes_um"] == sorted(cfg["box_sizes_um"])
+    for size in cfg["box_sizes_um"]:
+        assert size / tile_um == round(size / tile_um) >= 1, f"{size} µm is not a whole number of tiles"
+    assert cfg["region_tiles"] * tile_um in cfg["box_sizes_um"]
+
+
+@pytest.mark.parametrize("sizes, message", [([512, 1000], "1000"), ([1024, 2048], "512")])
+def test_bad_box_sizes_are_reported(tmp_path, sizes, message):
+    cfg = load_config()
+    cfg["box_sizes_um"] = sizes  # 1000 µm isn't a whole number of 128 µm tiles; the 512 µm default is missing
+    path = tmp_path / "config.yaml"
+    path.write_text(yaml.safe_dump(cfg))
+    with pytest.raises(ConfigError, match=message):
+        load_config(path)
+
+
+def test_project_model_env_overrides_the_configured_model(monkeypatch):
+    monkeypatch.setenv("PROJECT_MODEL", "fake")
+    assert load_config()["model"] == "fake"
+    monkeypatch.delenv("PROJECT_MODEL")
+    assert load_config()["model"] == yaml.safe_load((REPO_ROOT / "config.yaml").read_text())["model"]

@@ -20,7 +20,9 @@ from pydantic import BaseModel
 from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
-from project.regions import rank_regions, score_grid, slide_composition, tumor_heatmap
+from project.regions import (
+    box_tiles, default_box_um, rank_regions, score_grid, slide_composition, tumor_heatmap,
+)
 from project.store import now, open_store
 from project.tiling import NoTissueError, build_grid, read_tiles
 
@@ -65,8 +67,18 @@ class Result(BaseModel):
     model: str
     image: ImageInfo
     heatmap_url: str
+    regions_url: str
+    box_um: float
+    box_sizes_um: list[float]
     tiles: TileInfo
     slide_composition: dict[str, float]
+    regions: list[Region]
+    note: Optional[str]
+
+
+class Regions(BaseModel):
+    """The regions for one box size, from GET /api/jobs/{id}/regions?box_um=…"""
+    box_um: float
     regions: list[Region]
     note: Optional[str]
 
@@ -113,6 +125,7 @@ class Job:
         self.heatmap_png = None
         self.created_at = now()
         self.cancer_type = None
+        self.ranking = None  # (tile scores, tissue, tile_size, scale), kept so a box resize skips the model
         self.history = [(None, 0.0)]
         self.lock = threading.Lock()
 
@@ -166,6 +179,10 @@ def run_job(job, job_id, slide, path, cfg, backend, store, job_dir):
         job.advance("ranking", 0.95)
         classes = cfg["classes"]
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
+        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale)
+        # On disk too, so a box resize still works for this job after a restart (data/, never committed).
+        np.savez(job_dir / "ranking.npz", probs=grid_probs, tissue=grid.tissue, tile_size=grid.tile_size,
+                 scale=grid.scale)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
         (job_dir / "heatmap.png").write_bytes(job.heatmap_png)
@@ -174,6 +191,9 @@ def run_job(job, job_id, slide, path, cfg, backend, store, job_dir):
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
+            regions_url=f"/api/jobs/{job_id}/regions",
+            box_um=default_box_um(cfg),
+            box_sizes_um=cfg["box_sizes_um"],
             tiles=TileInfo(count=len(tiles), capped=grid.capped),
             slide_composition=slide_composition(probs, classes),
             regions=[Region(**r) for r in regions],
@@ -240,6 +260,18 @@ def create_app(cfg=None, store=None):
                          model=rec.model, result=rec.result, error=rec.error, created_at=rec.created_at,
                          cancer_type=rec.cancer_type)
 
+    def get_ranking(request, job_id):
+        """Tile scores for re-ranking: from memory if this process ran the job, else from disk."""
+        job = request.app.state.jobs.get(job_id)
+        if job is not None:
+            with job.lock:
+                return job.ranking
+        path = jobs_dir / job_id / "ranking.npz"
+        if not JOB_ID.match(job_id) or not path.is_file():
+            return None
+        with np.load(path) as f:
+            return f["probs"], f["tissue"], int(f["tile_size"]), float(f["scale"])
+
     def get_png(request, job_id, name):
         job = request.app.state.jobs.get(job_id)
         if job is not None:
@@ -282,6 +314,21 @@ def create_app(cfg=None, store=None):
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
         return get_status(request, job_id)
+
+    @app.get("/api/jobs/{job_id}/regions", response_model=Regions)
+    def regions_at_size(request: Request, job_id: str, box_um: float):
+        """Re-rank a finished job's stored tile scores with another box size. The model isn't run again."""
+        status = get_status(request, job_id)  # 404 for an unknown id
+        try:
+            n = box_tiles(cfg, box_um)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        ranking = get_ranking(request, job_id) if status.status == "done" else None
+        if ranking is None:
+            raise HTTPException(409, "This analysis is still running, or it failed. Box size can change once it's done.")
+        probs, tissue, tile_size, scale = ranking
+        regions, note = rank_regions(probs, tissue, {**cfg, "region_tiles": n}, tile_size, scale)
+        return Regions(box_um=box_um, regions=[Region(**r) for r in regions], note=note)
 
     @app.get("/api/jobs/{job_id}/display.png")
     def display_png(request: Request, job_id: str):

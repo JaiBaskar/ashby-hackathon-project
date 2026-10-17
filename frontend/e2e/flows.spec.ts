@@ -68,6 +68,30 @@ test('history: a finished analysis gets a card that opens its results', async ({
   await expect(regionBoxes(page)).toHaveCount(5)
 })
 
+test('box size: 1 mm re-ranks through the API, and 0.5 mm brings the original boxes back', async ({ page, request }) => {
+  const id = await uploadFromHome(page, fixture('slide'))
+  await expect(regionBoxes(page)).toHaveCount(5, { timeout: 30_000 })
+  const first = (await (await request.get(`/api/jobs/${id}`)).json()).result
+  const big = await (await request.get(`/api/jobs/${id}/regions?box_um=1024`)).json()
+  expect(big.regions.length).toBeGreaterThan(0)
+
+  const sizes = page.getByRole('radiogroup', { name: 'Box size' })
+  await sizes.getByText('1 mm', { exact: true }).click()
+  await expect(regionBoxes(page)).toHaveCount(big.regions.length)
+  await expect(page.getByRole('region', { name: 'Region details' }).getByTestId('size')).toContainText('1024 µm')
+  if (big.note) await expect(page.getByText(big.note)).toBeVisible()
+
+  // Twice the side of a 0.5 mm box, at the rendered scale.
+  const img = (await page.getByRole('img', { name: /uploaded slide/ }).boundingBox())!
+  const scale = img.width / first.image.width
+  const b = (await regionBoxes(page).first().boundingBox())!
+  expect(b.width).toBeCloseTo(2 * first.regions[0].w * scale, 0)
+
+  await sizes.getByText('0.5 mm', { exact: true }).click()
+  await expect(regionBoxes(page)).toHaveCount(first.regions.length)
+  await expect(page.getByRole('region', { name: 'Region details' }).getByTestId('size')).toContainText('512 µm')
+})
+
 test('error flow: a blank image ends in the error state, and "Try another image" returns to upload', async ({ page }) => {
   await uploadFromHome(page, fixture('blank'))
   await expect(page.getByText('No tissue found in this image.')).toHaveAttribute('role', 'alert', { timeout: 30_000 })
