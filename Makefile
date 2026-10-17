@@ -1,8 +1,8 @@
 # One-command entry points. `make test` needs no GPU, no internet and no Hugging Face token.
 PY ?= .venv/bin/python
-FAST := not realmodel and not gpu and not delta
+FAST := not realmodel and not gpu and not delta and not db
 
-.PHONY: setup setup-real dev test test-backend test-frontend test-e2e test-real
+.PHONY: setup setup-real dev test test-backend test-frontend test-e2e test-real test-db
 
 setup:
 	python3.12 -m venv .venv
@@ -33,3 +33,7 @@ test-e2e:
 
 test-real:
 	$(PY) -m pytest backend -m realmodel -v
+
+# Postgres store tests in a throwaway schema (dropped afterwards). Needs TEST_DATABASE_URL.
+test-db:
+	$(PY) -m pytest backend -m db -v
