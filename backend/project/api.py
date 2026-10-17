@@ -19,7 +19,7 @@ from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
 from project.regions import (
-    box_tiles, default_box_um, rank_regions, score_grid, slide_composition, tumor_heatmap,
+    box_tiles, default_box_um, measure_box, rank_regions, score_grid, slide_composition, tumor_heatmap,
 )
 from project.tiling import NoTissueError, build_grid, read_tiles
 
@@ -64,6 +64,7 @@ class Result(BaseModel):
     image: ImageInfo
     heatmap_url: str
     regions_url: str
+    measure_url: str
     box_um: float
     box_sizes_um: list[float]
     tiles: TileInfo
@@ -77,6 +78,22 @@ class Regions(BaseModel):
     box_um: float
     regions: list[Region]
     note: Optional[str]
+
+
+class MeasuredBox(BaseModel):
+    """Any rectangle the user draws, from GET /api/jobs/{id}/measure?x=…&y=…&w=…&h= (display pixels)."""
+    x: float
+    y: float
+    w: float
+    h: float
+    width_um: float
+    height_um: float
+    tiles: float
+    score: float
+    tissue_coverage: float
+    tumor_std: float
+    composition: dict[str, float]
+    reasons: list[str]
 
 
 class JobCreated(BaseModel):
@@ -104,7 +121,7 @@ class Job:
         self.error = None
         self.display_png = None
         self.heatmap_png = None
-        self.ranking = None  # (tile scores, tissue, tile_size, scale), kept so a box resize skips the model
+        self.ranking = None  # (tile scores, tissue, tile_size, scale, mpp), kept so box changes skip the model
         self.history = [(None, 0.0)]
         self.lock = threading.Lock()
 
@@ -147,7 +164,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
         job.advance("ranking", 0.95)
         classes = cfg["classes"]
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
-        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale)
+        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale, slide.mpp)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
         result = Result(
@@ -156,6 +173,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
             regions_url=f"/api/jobs/{job_id}/regions",
+            measure_url=f"/api/jobs/{job_id}/measure",
             box_um=default_box_um(cfg),
             box_sizes_um=cfg["box_sizes_um"],
             tiles=TileInfo(count=len(tiles), capped=grid.capped),
@@ -243,13 +261,18 @@ def create_app(cfg=None):
             n = box_tiles(cfg, box_um)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
-        with job.lock:
-            ranking = job.ranking if job.status == "done" else None
-        if ranking is None:
-            raise HTTPException(409, "This analysis is still running, or it failed. Box size can change once it's done.")
-        probs, tissue, tile_size, scale = ranking
+        probs, tissue, tile_size, scale, _ = finished_ranking(job)
         regions, note = rank_regions(probs, tissue, {**cfg, "region_tiles": n}, tile_size, scale)
         return Regions(box_um=box_um, regions=[Region(**r) for r in regions], note=note)
+
+    @app.get("/api/jobs/{job_id}/measure", response_model=MeasuredBox)
+    def measure(request: Request, job_id: str, x: float, y: float, w: float, h: float):
+        """Measure a free-form box from the stored tile scores. The model isn't run again."""
+        probs, tissue, tile_size, scale, mpp = finished_ranking(get_job(request, job_id))
+        try:
+            return MeasuredBox(**measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     @app.get("/api/jobs/{job_id}/display.png")
     def display_png(request: Request, job_id: str):
@@ -260,6 +283,14 @@ def create_app(cfg=None):
         return image_response(get_job(request, job_id).heatmap_png)
 
     return app
+
+
+def finished_ranking(job):
+    with job.lock:
+        ranking = job.ranking if job.status == "done" else None
+    if ranking is None:
+        raise HTTPException(409, "This analysis is still running, or it failed. Boxes can change once it's done.")
+    return ranking
 
 
 def image_response(data):

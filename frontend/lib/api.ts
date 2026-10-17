@@ -27,6 +27,7 @@ export interface Result {
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
   regions_url: string
+  measure_url: string
   box_um: number
   box_sizes_um: number[]
   tiles: { count: number; capped: boolean }
@@ -40,6 +41,22 @@ export interface RegionsAtSize {
   box_um: number
   regions: Region[]
   note: string | null
+}
+
+// GET {measure_url}?x=…&y=…&w=…&h= : any rectangle (display pixels), measured from the stored tile scores.
+export interface MeasuredBox {
+  x: number
+  y: number
+  w: number
+  h: number
+  width_um: number
+  height_um: number
+  tiles: number
+  score: number
+  tissue_coverage: number
+  tumor_std: number
+  composition: Composition
+  reasons: string[]
 }
 
 export interface JobStatus {

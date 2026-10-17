@@ -128,3 +128,13 @@ One line each: decision + reason.
 - One size per ranking: boxes of different sizes are never mixed, because a small box can sit inside one tumor pocket and would always outscore a larger one.
 - The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
 - The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
+
+## Free-form box
+- Users can draw their own rectangle on the slide ("Draw a box"), or turn a suggested region into one ("Adjust this box"), then move it and resize it from 8 handles, like a screenshot selection. Dragging a side past the opposite one flips the box. Arrow keys move it 16 display px, and Shift + arrow keys resize it from the bottom-right; from the keyboard, "Draw a box" places a best-region-sized box in the middle and focuses it.
+- `GET /api/jobs/{id}/measure?x=&y=&w=&h=` (display px) measures any rectangle from the job's stored tile scores; the model isn't run again. Each tile counts by the share of it the box covers, so the box needn't line up with the 128 µm grid. A box placed exactly on a suggested region gives that region's score, composition and tumor std (tested).
+- Unanalyzed tiles (glass, or dropped by `max_tiles`) count toward coverage but not composition; a box with no analyzed tile is a 400 that says to move it over tissue. The box is clipped to the tile grid, which drops the partial right and bottom edge of the image.
+- Free-box reasons only state facts about the box itself (low necrosis, coverage, evenness), plus a warning when it covers fewer than 4 tiles' worth of area, since those numbers rest on very few tiles. It has no rank, so there's no "highest of all candidates" reason.
+- Pointer drags measure once, on release; keyboard changes wait 300 ms after the last key. Only the latest request's answer is shown.
+- The free box is dashed (the suggestions are solid), with the same black outer outline, so it's distinguishable without color and keeps contrast on both stains.
+- jsdom has no `PointerEvent`; `vitest.setup.ts` adds a small MouseEvent-based stand-in for the drag tests.
+- Because `config.yaml` now says `model: conch`, the API tests and the Playwright server (`backend/tests/demo_app.py`) pin `model: fake`, so the fast suite still runs with no GPU, token or weights (AGENTS.md §7).

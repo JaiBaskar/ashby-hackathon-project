@@ -73,6 +73,53 @@ test('box size: 1 mm re-ranks through the API, and 0.5 mm brings the original bo
   await expect(page.getByRole('region', { name: 'Region details' }).getByTestId('size')).toContainText('512 µm')
 })
 
+test('free box: draw any rectangle, resize it by a corner, and its numbers come from the API', async ({ page, request }) => {
+  const id = await uploadFromHome(page, fixture('slide'))
+  await expect(regionBoxes(page)).toHaveCount(5, { timeout: 30_000 })
+  const img = (await page.getByRole('img', { name: /uploaded slide/ }).boundingBox())!
+
+  await page.getByRole('button', { name: 'Draw a box' }).click()
+  const from = { x: img.x + img.width * 0.3, y: img.y + img.height * 0.3 }
+  await page.mouse.move(from.x, from.y)
+  await page.mouse.down()
+  await page.mouse.move(from.x + 120, from.y + 60, { steps: 5 })
+  await page.mouse.up()
+
+  const box = page.getByRole('group', { name: /^Your box/ })
+  await expect(box).toBeVisible()
+  const panel = page.getByRole('region', { name: 'Region details' })
+  await expect(panel.getByRole('heading', { name: 'Your box' })).toBeVisible()
+  const drawn = (await box.boundingBox())!
+  expect(drawn.width).toBeCloseTo(120, 0)
+  expect(drawn.height).toBeCloseTo(60, 0)
+
+  // Resize from the bottom-right handle.
+  const handle = (await box.getByTestId('handle-se').boundingBox())!
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(handle.x + handle.width / 2 + 80, handle.y + handle.height / 2 + 40, { steps: 5 })
+  await page.mouse.up()
+  const resized = (await box.boundingBox())!
+  expect(resized.width).toBeCloseTo(200, 0)
+  expect(resized.height).toBeCloseTo(100, 0)
+
+  // The panel shows what the API measures for the box's current rectangle.
+  const job = (await (await request.get(`/api/jobs/${id}`)).json()).result
+  const scale = img.width / job.image.width
+  const q = new URLSearchParams({
+    x: String((resized.x - img.x) / scale),
+    y: String((resized.y - img.y) / scale),
+    w: String(resized.width / scale),
+    h: String(resized.height / scale),
+  })
+  const measured = await (await request.get(`/api/jobs/${id}/measure?${q}`)).json()
+  await expect(panel.getByTestId('tumor-vs-slide')).toContainText(`${pct(measured.composition.tumor)} here`)
+  await expect(panel.getByTestId('size')).toContainText(`${Math.round(measured.width_um)} × ${Math.round(measured.height_um)} µm`)
+
+  await panel.getByRole('button', { name: 'Remove your box' }).click()
+  await expect(box).toHaveCount(0)
+})
+
 test('error flow: a blank image ends in the error state, and "Try another image" returns to upload', async ({ page }) => {
   await uploadFromHome(page, fixture('blank'))
   await expect(page.getByText('No tissue found in this image.')).toHaveAttribute('role', 'alert', { timeout: 30_000 })

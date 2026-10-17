@@ -1,6 +1,6 @@
 # ashby-puppymoggers
 
-A web app for the Ashby Hackathon (UIUC). Upload a photo or scan of an H&E biopsy slide, and it suggests the five best regions to sample. The backend tiles the image, scores each tile with the CONCH pathology model (zero-shot), and ranks regions by tumor content, necrosis and evenness. Each suggestion comes with its estimated tissue composition and rule-based reasons. The results screen lets you switch the box size (0.5, 1 or 2 mm, to match the punch or core you'll cut); this re-ranks the stored tile scores without running the model again. **Research prototype, not for clinical use.**
+A web app for the Ashby Hackathon (UIUC). Upload a photo or scan of an H&E biopsy slide, and it suggests the five best regions to sample. The backend tiles the image, scores each tile with the CONCH pathology model (zero-shot), and ranks regions by tumor content, necrosis and evenness. Each suggestion comes with its estimated tissue composition and rule-based reasons. The results screen lets you switch the box size (0.5, 1 or 2 mm, to match the punch or core you'll cut); this re-ranks the stored tile scores without running the model again. You can also draw your own box of any shape, or adjust a suggested one: drag to move it, drag a handle to resize it (arrow keys work too), and its composition and score are measured from the same tile scores. **Research prototype, not for clinical use.**
 
 ## How it fits together
 
