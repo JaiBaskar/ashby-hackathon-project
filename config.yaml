@@ -7,35 +7,10 @@ seed: 1234
 
 # Zero-shot tissue classes, in output column order. Each class's score uses the mean of its prompts.
 classes: [tumor, stroma, immune, necrosis, normal, fat_other]
-# prompt_set picks one entry of prompt_sets. v1 leans toward colon (mucosa, adenocarcinoma);
-# v2 is worded for any organ. Compared in results/conch_auroc_<dataset>_<set>.json (reports/decisions.md).
+# prompt_set picks one entry of prompt_sets. v2 is worded for any organ; it replaced the colon-leaning
+# v1 after the CRC + BCSS comparison (reports/decisions.md, results/conch_auroc_<dataset>_<set>.json).
 prompt_set: v2
 prompt_sets:
-  v1:
-    tumor:
-      - an H&E image of tumor
-      - an H&E image of adenocarcinoma
-      - an H&E image of carcinoma
-      - an H&E image of malignant epithelium
-    stroma:
-      - an H&E image of stroma
-      - an H&E image of fibrous connective tissue
-      - an H&E image of smooth muscle
-    immune:
-      - an H&E image of lymphocytes
-      - an H&E image of immune cells
-      - an H&E image of an inflammatory infiltrate
-    necrosis:
-      - an H&E image of necrosis
-      - an H&E image of necrotic debris
-    normal:
-      - an H&E image of normal tissue
-      - an H&E image of normal mucosa
-      - an H&E image of benign glands
-    fat_other:
-      - an H&E image of adipose tissue
-      - an H&E image of mucus
-      - an H&E image of background
   v2:
     tumor:
       - an H&E image of tumor

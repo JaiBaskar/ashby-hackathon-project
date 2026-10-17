@@ -118,3 +118,4 @@ One line each: decision + reason.
 - Results: `results/conch_auroc_{crc,bcss}_{v1,v2}.json` (written by `make test-real`). All four clear 0.8, and `v2` met the rule, so `prompt_set` is now `v2`. The gap between the sets is small on both datasets, about one point, likely within sampling noise at these tile counts. Read it as "v2 is no worse on colon and works on breast", not as a clear win.
 - `results/conch_auroc_v1.json` from the first run is replaced by `conch_auroc_crc_v1.json`, which reproduces the same value.
 - This supersedes the Phase 7 note that `make test-real` didn't run: it now runs on this Mac (MPS) with the cached weights and `HF_HUB_OFFLINE=1`.
+- `v1` was then removed from `config.yaml` and the real-model tests, at the team's request, so `v2` is the only prompt set. Its wording is still in git history (commit `c62722d`). The `v1` result files are kept as the record of the comparison that retired it.

@@ -24,7 +24,7 @@ def test_missing_key_is_reported(tmp_path):
 
 def test_every_prompt_set_covers_every_class():
     cfg = load_config()
-    assert {"v1", "v2"} <= set(cfg["prompt_sets"])
+    assert "v2" in cfg["prompt_sets"]
     for name, prompts in cfg["prompt_sets"].items():
         assert set(prompts) == set(cfg["classes"]), f"prompt set {name} doesn't match classes"
         assert all(prompts[c] for c in cfg["classes"]), f"prompt set {name} has a class with no prompts"

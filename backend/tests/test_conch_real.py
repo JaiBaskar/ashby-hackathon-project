@@ -20,7 +20,7 @@ pytestmark = pytest.mark.realmodel
 N_CRC_TILES = 200
 N_BCSS_TILES = 300
 MIN_AUROC = 0.8  # fixed before any BCSS run (reports/decisions.md)
-PROMPT_SETS = ["v1", "v2"]
+PROMPT_SETS = ["v2"]  # v1 (colon-leaning) was retired after the CRC + BCSS comparison
 
 
 @pytest.fixture(scope="module")
