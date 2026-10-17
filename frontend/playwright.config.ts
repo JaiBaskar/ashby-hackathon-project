@@ -23,7 +23,7 @@ export default defineConfig({
   },
   webServer: [
     {
-      command: `${PYTHON} -m uvicorn --factory --app-dir ../backend project.api:create_app --host 127.0.0.1 --port ${API_PORT}`,
+      command: `${PYTHON} -m uvicorn --factory --app-dir ../backend tests.demo_app:create_app --host 127.0.0.1 --port ${API_PORT}`,
       url: `${API_URL}/docs`,
       reuseExistingServer: false,
       timeout: 60_000,

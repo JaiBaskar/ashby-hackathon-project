@@ -17,6 +17,7 @@ from tests.synthetic import GLASS, he_slide, solid
 @pytest.fixture
 def cfg(tmp_path):
     cfg = load_config()
+    cfg["model"] = "fake"  # the fast suite needs no GPU, token or weights (AGENTS.md §7), whatever config.yaml runs
     cfg["paths"] = {**cfg["paths"], "uploads": str(tmp_path / "uploads")}
     return cfg
 
