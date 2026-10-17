@@ -36,3 +36,14 @@ One line each: decision + reason.
 - The real-model AUROC result goes to `results/conch_auroc_<prompt_set>.json`, so a one-time prompt change keeps both results.
 - When the token is missing, the realmodel tests fail with a clear message instead of skipping; only missing CRC data skips (the brief's rule).
 - CRC-VAL-HE-7K: `scripts/get_crc_val.sh` shows the size (~800 MB) and asks before downloading; not run yet, since realmodel tests run in Phase 7.
+
+## Frontend moved to Next.js (after Phase 2)
+- Frontend rewritten from Vite to Next.js 16.4.2 (App Router) at the team's request. All ML logic stays in Python behind FastAPI; Phases 1–2 are unchanged. This replaces the Phase 0 lines about Vite, `@tailwindcss/vite` and `create-vite`.
+- Next.js reaches FastAPI through an `/api/*` rewrite in `frontend/next.config.ts`: one origin and no CORS. `API_URL` (default `http://localhost:8000`) is read when `next dev`/`next build` starts. Tested: `next start` ignored an `API_URL` set after the build.
+- `experimental.proxyClientMaxBodySize` = `max_upload_mb` + 1 MB, read from `config.yaml`. Tested with a 40 MB upload through `next dev`: by default Next cut the body at 10 MB and the backend request failed; with the setting, all 41,943,251 bytes arrived.
+- Vite 6.4.4 stays as a pinned dev dependency: Vitest runs on Vite, and npm would otherwise install Vite 7, which needs Node ≥ 22.12.
+- React 19.2.9 (inside Next 16's peer range); Tailwind CSS 4 through `@tailwindcss/postcss`; no ESLint for now (fewer dependencies).
+- Vitest uses `vitest.config.mts` with `@vitejs/plugin-react` and an `@` alias, so there's no extra tsconfig-paths plugin.
+- `frontend/AGENTS.md` is written by `next dev` (verified in `next/dist/server/lib/generate-agent-files.js`) and committed, so it doesn't keep showing up as a change.
+- Planned App Router layout for Phase 6: `/`, `/upload`, `/jobs/[id]`. Each job gets a URL that survives a reload.
+- In this agent's sandbox, Python processes can't accept local connections, though Node can (the macOS firewall is off). So the upload check used a Node stand-in for FastAPI. FastAPI's own tests (Phase 4) use the in-process TestClient.

@@ -13,7 +13,8 @@ setup:
 setup-real: setup
 	$(PY) -m pip install -r backend/requirements-real.txt
 
-# The API server arrives in Phase 4; until then this starts the frontend only.
+# Next.js on http://localhost:3000. It forwards /api/* to FastAPI (API_URL, default http://localhost:8000),
+# which runs the Python ML code. The FastAPI server arrives in Phase 4; until then this starts Next.js only.
 dev:
 	cd frontend && npm run dev
 

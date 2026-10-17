@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react'
-import App from './App'
+import Home from './page'
 
-test('renders the app shell', () => {
-  render(<App />)
+test('renders the home page heading', () => {
+  render(<Home />)
   expect(screen.getByRole('heading', { level: 1 })).toBeInTheDocument()
 })
