@@ -128,3 +128,14 @@ One line each: decision + reason.
 - One size per ranking: boxes of different sizes are never mixed, because a small box can sit inside one tumor pocket and would always outscore a larger one.
 - The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
 - The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
+
+## Request history (Postgres on Tiger Cloud)
+- Every analysis is recorded in a store: `PostgresStore` when `DATABASE_URL` is set (a Tiger Cloud DEV service, `ashby-prize` (id `yni5q7anm1`), shared tier, us-east-1), else `MemoryStore`. One contract test suite covers both (`backend/tests/test_store.py`; Postgres cases run with `make test-db` in a throwaway schema).
+- Privacy: the cloud gets only job metadata (id, created time, status, model, prompt set, cancer type) and the Result JSON (numbers, reasons, region boxes). Never the uploaded file, its filename or any image; a test uploads `MRN-4417-smith.png` and checks the name appears nowhere. Display and heatmap PNGs stay on this machine in `data/jobs/<id>/` (gitignored), so history links still work after a restart on the same machine.
+- `DATABASE_URL` set but unreachable → the server refuses to start (same rule as the model: no silent fallback). The error never echoes the URL, which may hold a password. Once running, a failed store write is logged and the result is still shown.
+- Rows left `running` by a crash are marked as errors on startup ("The server restarted during this analysis").
+- Image routes only touch the disk for 32-hex-character job ids, so a crafted id can't read other files.
+- Cancer type: the column, API field and card attribute exist but stay null and read "Not identified yet": the classifier is on hold while the model changes. Filling it in is one argument in `run_job` (`job.cancer_type`).
+- Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
+- The tile-score grid behind box resizing is also saved as `data/jobs/<id>/ranking.npz` (gitignored), so changing the box size still works for a job after a restart.
+- After the merge with the box-size work, `main` had `model: conch` in `config.yaml`. The API tests now force the demo model in their fixture, and Playwright starts FastAPI with `PROJECT_MODEL=fake` (a new override in `load_config`), so `make test` still needs no token, weights or GPU (AGENTS.md §7) while `make dev` uses CONCH.
