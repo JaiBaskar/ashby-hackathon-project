@@ -91,3 +91,4 @@ paths:
   uploads: data/uploads
   results: results
   crc_val_dir: data/CRC-VAL-HE-7K   # CRC-VAL-HE-7K tiles, one folder per class (scripts/get_crc_val.sh)
+  bcss_dir: data/BCSS               # BCSS breast regions + masks, seeded subset (scripts/get_bcss.py)
