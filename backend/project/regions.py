@@ -8,7 +8,7 @@ import re
 import numpy as np
 from PIL import Image
 
-HEATMAP_RGB = (214, 40, 110)   # tumor overlay color; opacity follows the tumor probability
+HEATMAP_RGB = (255, 196, 0)    # amber, far in hue from eosin and hematoxylin; opacity follows the tumor probability
 HEATMAP_MAX_ALPHA = 0.85
 
 
