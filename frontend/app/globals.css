@@ -1,1 +1,141 @@
 @import "tailwindcss";
+
+/* Design tokens: the one place for colors, type, radii, shadows and motion (see frontend/DESIGN.md).
+   Components use these through Tailwind utilities (bg-surface, text-ink-muted, duration-fast, ...),
+   never raw hex values. `static` emits every token as a CSS variable, so components can also use var(). */
+@theme static {
+  /* Drop Tailwind's default palette, type scale, radii and shadows, so only ours exist. */
+  --color-*: initial;
+  --text-*: initial;
+  --radius-*: initial;
+  --shadow-*: initial;
+
+  /* Chrome, light mode. Dark values are below. */
+  --color-canvas: #F5F4F0;
+  --color-surface: #FFFFFF;
+  --color-surface-sunken: #ECEBE6;
+  --color-ink: #16181A;
+  --color-ink-muted: #575B60;
+  --color-line: #DCDAD4;
+  --color-line-strong: #B9B6AE;
+  --color-accent: #2DB391;
+  --color-accent-ink: #06231C;
+  --color-accent-strong: #0A6B57;
+  --color-focus: #0A6B57;
+  --color-danger: #B42318;
+
+  /* Region boxes over the slide. Same in both themes: they sit on the stain, not on the chrome.
+     Each box is a black outer outline plus a colored inner stroke (DESIGN.md, "Region boxes"). */
+  --color-box-outline: #000000;
+  --color-box-best: #2DB391;
+  --color-box-other: #F4F3EF;
+  --box-outline-width: 2px;
+  --box-stroke-best: 4px;
+  --box-stroke-other: 2px;
+
+  /* Tissue classes, for the composition bar and legend. */
+  --color-class-tumor: #5B3A8C;
+  --color-class-stroma: #D99AB3;
+  --color-class-immune: #3C5A7A;
+  --color-class-necrosis: #8C6A3F;
+  --color-class-normal: #7FA996;
+  --color-class-fat-other: #CBC6BC;
+
+  /* Type: Newsreader for display, IBM Plex Sans for everything else. Fonts are wired in @theme inline. */
+  --text-xs: 0.75rem;
+  --text-xs--line-height: 1rem;
+  --text-sm: 0.875rem;
+  --text-sm--line-height: 1.25rem;
+  --text-base: 1rem;
+  --text-base--line-height: 1.5rem;
+  --text-lg: 1.25rem;
+  --text-lg--line-height: 1.75rem;
+  --text-xl: 1.75rem;
+  --text-xl--line-height: 2.25rem;
+  --text-display: 2.75rem;
+  --text-display--line-height: 1.1;
+  --text-display--letter-spacing: -0.01em;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+  --radius-full: 9999px;
+
+  --shadow-raised: 0 1px 2px rgb(16 18 20 / 0.06), 0 1px 1px rgb(16 18 20 / 0.04);
+  --shadow-overlay: 0 16px 40px -12px rgb(16 18 20 / 0.22), 0 2px 6px rgb(16 18 20 / 0.06);
+
+  /* Motion: short and calm. Used as duration-fast / duration-base / duration-slow and ease-standard. */
+  --transition-duration-fast: 120ms;
+  --transition-duration-base: 200ms;
+  --transition-duration-slow: 320ms;
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1.1);
+  --default-transition-duration: 200ms;
+  --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+/* next/font sets --font-newsreader and --font-plex on <html> (app/layout.tsx). */
+@theme inline {
+  --font-*: initial;
+  --font-display: var(--font-newsreader), Georgia, serif;
+  --font-sans: var(--font-plex), ui-sans-serif, system-ui, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #0E1012;
+    --color-surface: #16191C;
+    --color-surface-sunken: #1E2226;
+    --color-ink: #ECEDEE;
+    --color-ink-muted: #A3A8AD;
+    --color-line: #2B3034;
+    --color-line-strong: #454B50;
+    --color-accent: #3CC8A5;
+    --color-accent-ink: #04201A;
+    --color-accent-strong: #5FD8B8;
+    --color-focus: #5FD8B8;
+    --color-danger: #FF8B7E;
+    --shadow-raised: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-overlay: 0 16px 40px -12px rgb(0 0 0 / 0.6), 0 2px 6px rgb(0 0 0 / 0.3);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --transition-duration-fast: 0ms;
+    --transition-duration-base: 0ms;
+    --transition-duration-slow: 0ms;
+    --default-transition-duration: 0ms;
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: light dark;
+  }
+
+  body {
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+}
+
+/* A region box on the slide: black outer outline + light inner stroke. */
+@utility region-box {
+  border: var(--box-stroke-other) solid var(--color-box-other);
+  box-shadow: 0 0 0 var(--box-outline-width) var(--color-box-outline);
+}
+
+/* The best region: accent inner stroke, twice as thick, so it stands out without color too
+   (it also carries a "Best" label). */
+@utility region-box-best {
+  border: var(--box-stroke-best) solid var(--color-box-best);
+  box-shadow: 0 0 0 var(--box-outline-width) var(--color-box-outline);
+}

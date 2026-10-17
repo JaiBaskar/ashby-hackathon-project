@@ -71,3 +71,14 @@ One line each: decision + reason.
 - `make dev` starts uvicorn on :8000 in the background and `next dev` in the foreground; `trap 'kill 0' EXIT` stops both on Ctrl-C.
 - Live check (uvicorn on Windows, synthetic 2048×1536 fixture): job done, 28 tiles, 1 region with a note, display.png served, upload deleted. The fixture only fits one 4×4 region; Phase 7's fixture must be bigger (brief §5, Phase 7).
 - Note grammar fixed for exactly one region ("1 region is ... so 1 is shown").
+
+## Phase 5
+- This Mac has only Python 3.14 (no 3.12): `.venv` was built with `python3.14 -m venv .venv`, and every pinned backend requirement installed and passed (86 tests). The Makefile's `python3.12` line is unchanged.
+- Box contrast: no single color reaches 3:1 on both eosin pink (L ≈ 0.540) and hematoxylin purple (L ≈ 0.106) except near-black (`#000000` 3.13:1 on purple, `#0A0A0A` 2.95:1). Every box is a black 2 px outer outline plus a colored inner stroke, and the test requires, per box style and tissue color, that at least one layer reaches 3:1. The 3:1 bar didn't move.
+- Box inner strokes: best = the accent `#2DB391` at 4 px, others = light neutral `#F4F3EF` at 2 px; the thicker stroke plus a "Best" label make the best box visible without color. Box tokens are the same in both themes because they sit on the slide.
+- Accent is a teal-green: its hue is far from both stains, so it never blends into the tissue, and it isn't Tailwind blue.
+- Fonts: Newsreader (display) and IBM Plex Sans (body) from `@fontsource-variable/*` 5.3.0 via `next/font/local`, so builds and tests stay offline; both are OFL and credited in the README.
+- Tailwind's default colors, type scale, radii, shadows and fonts are reset with `--*: initial` inside `@theme`, so only our tokens exist. `@theme static` emits every token as a CSS variable; fonts use `@theme inline`, as the Next.js font docs show.
+- Dark mode follows `prefers-color-scheme` by redefining the chrome tokens on `:root`; components need no `dark:` variants. A manual theme toggle isn't in the brief.
+- The token test also fails on any hex color in `app/` or `components/` outside `globals.css`, to keep "tokens only" enforced in Phase 6.
+- Contrast math lives in `frontend/lib/contrast.ts` (WCAG 2.x), with hand-computed checks: 21:1 black on white, pink L = 0.5397, 3.13 and 2.95 on purple.
