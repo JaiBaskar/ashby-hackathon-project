@@ -1,4 +1,4 @@
-import type { Composition, JobStatus, Region, Result } from '@/lib/api'
+import type { Composition, JobStatus, MeasuredBox, Region, Result } from '@/lib/api'
 
 const comp = (tumor: number, necrosis: number): Composition => {
   const rest = 1 - tumor - necrosis
@@ -29,6 +29,7 @@ export function makeResult(overrides: Partial<Result> = {}): Result {
     image: { url: '/api/jobs/abc/display.png', width: 2048, height: 1536, mpp: 0.5, mpp_estimated: false },
     heatmap_url: '/api/jobs/abc/heatmap.png',
     regions_url: '/api/jobs/abc/regions',
+    measure_url: '/api/jobs/abc/measure',
     box_um: 512,
     box_sizes_um: [512, 1024, 2048],
     tiles: { count: 412, capped: false },
@@ -41,6 +42,25 @@ export function makeResult(overrides: Partial<Result> = {}): Result {
       region(5, 100, 100, 0.44, 0.02, ['Tumor content is 18 points lower than the best region']),
     ],
     note: null,
+    ...overrides,
+  }
+}
+
+// What GET {measure_url}?x=…&y=…&w=…&h= returns for a free-form box (display pixels in, µm out).
+export function makeMeasured(x: number, y: number, w: number, h: number, overrides: Partial<MeasuredBox> = {}): MeasuredBox {
+  return {
+    x,
+    y,
+    w,
+    h,
+    width_um: w * 0.5,
+    height_um: h * 0.5,
+    tiles: (w / 256) * (h / 256),
+    score: 0.37,
+    tissue_coverage: 0.93,
+    tumor_std: 0.06,
+    composition: comp(0.44, 0.03),
+    reasons: ['Low necrosis (3%), which favors good DNA yield', 'Tumor content is even across the box (low variation)'],
     ...overrides,
   }
 }

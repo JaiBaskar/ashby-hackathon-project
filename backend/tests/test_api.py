@@ -309,6 +309,50 @@ def test_regions_before_the_job_is_done_is_409(cfg):
     assert "still" in r.json()["detail"]
 
 
+# --- free-form box: measure any rectangle on a finished job ---------------------------------------
+
+def test_measure_any_box_on_a_finished_job(cfg, monkeypatch):
+    calls = []
+    original = FakeBackend.predict
+    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles: calls.append(len(tiles)) or original(self, tiles))
+    client = TestClient(create_app(cfg))
+    job_id = upload(client, png_bytes(he_slide(4096, 3072))).json()["job_id"]
+    result = poll(client, job_id)[0]["result"]
+    assert result["measure_url"] == f"/api/jobs/{job_id}/measure"
+    n_calls = len(calls)
+
+    best = result["regions"][0]
+    same = client.get(result["measure_url"], params={k: best[k] for k in ("x", "y", "w", "h")})
+    assert same.status_code == 200, same.text
+    body = same.json()
+    assert body["score"] == pytest.approx(best["score"])
+    assert body["composition"]["tumor"] == pytest.approx(best["composition"]["tumor"])
+
+    odd = client.get(result["measure_url"], params={"x": 333.5, "y": 120, "w": 517, "h": 211}).json()
+    assert (odd["x"], odd["y"], odd["w"], odd["h"]) == (333.5, 120, 517, 211)
+    assert sum(odd["composition"].values()) == pytest.approx(1.0)
+    assert odd["width_um"] / odd["height_um"] == pytest.approx(517 / 211)
+    assert len(calls) == n_calls  # measured from the stored tile scores
+
+
+def test_measure_refuses_an_empty_box_or_glass(client):
+    job_id = upload(client, png_bytes(he_slide(2048, 1536))).json()["job_id"]
+    poll(client, job_id)
+    empty = client.get(f"/api/jobs/{job_id}/measure", params={"x": 10, "y": 10, "w": 0, "h": 50})
+    assert empty.status_code == 400 and "box" in empty.json()["detail"]
+    glass = client.get(f"/api/jobs/{job_id}/measure", params={"x": 0, "y": 0, "w": 40, "h": 40})  # corner glass
+    assert glass.status_code == 400 and "no analyzed tissue" in glass.json()["detail"]
+
+
+def test_measure_unknown_or_unfinished_job(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    params = {"x": 0, "y": 0, "w": 100, "h": 100}
+    assert client.get("/api/jobs/nope/measure", params=params).status_code == 404
+    app.state.jobs["running"] = Job("fake")
+    assert client.get("/api/jobs/running/measure", params=params).status_code == 409
+
+
 def test_box_resize_still_works_after_a_restart(cfg):
     store = MemoryStore()
     before = TestClient(create_app(cfg, store=store))
@@ -320,3 +364,18 @@ def test_box_resize_still_works_after_a_restart(cfg):
     r = after.get(f"/api/jobs/{job_id}/regions", params={"box_um": 1024})
     assert r.status_code == 200
     assert r.json() == expected
+
+
+def test_free_box_still_measures_after_a_restart(cfg):
+    store = MemoryStore()
+    before = TestClient(create_app(cfg, store=store))
+    job_id = upload(before, png_bytes(he_slide(4096, 3072)), mpp=0.25).json()["job_id"]
+    poll(before, job_id)
+    params = {"x": 333.5, "y": 120, "w": 517, "h": 211}
+    expected = before.get(f"/api/jobs/{job_id}/measure", params=params).json()
+
+    after = TestClient(create_app(cfg, store=store))  # tile scores and scale come from data/jobs/<id>/ranking.npz
+    r = after.get(f"/api/jobs/{job_id}/measure", params=params)
+    assert r.status_code == 200
+    assert r.json() == expected
+    assert r.json()["width_um"] == pytest.approx(517 * 2 * 0.25)  # display is half size; the typed 0.25 µm/px kept

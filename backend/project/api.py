@@ -21,7 +21,7 @@ from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
 from project.regions import (
-    box_tiles, default_box_um, rank_regions, score_grid, slide_composition, tumor_heatmap,
+    box_tiles, default_box_um, measure_box, rank_regions, score_grid, slide_composition, tumor_heatmap,
 )
 from project.store import now, open_store
 from project.tiling import NoTissueError, build_grid, read_tiles
@@ -68,6 +68,7 @@ class Result(BaseModel):
     image: ImageInfo
     heatmap_url: str
     regions_url: str
+    measure_url: str
     box_um: float
     box_sizes_um: list[float]
     tiles: TileInfo
@@ -81,6 +82,22 @@ class Regions(BaseModel):
     box_um: float
     regions: list[Region]
     note: Optional[str]
+
+
+class MeasuredBox(BaseModel):
+    """Any rectangle the user draws, from GET /api/jobs/{id}/measure?x=…&y=…&w=…&h= (display pixels)."""
+    x: float
+    y: float
+    w: float
+    h: float
+    width_um: float
+    height_um: float
+    tiles: float
+    score: float
+    tissue_coverage: float
+    tumor_std: float
+    composition: dict[str, float]
+    reasons: list[str]
 
 
 class JobCreated(BaseModel):
@@ -125,7 +142,7 @@ class Job:
         self.heatmap_png = None
         self.created_at = now()
         self.cancer_type = None
-        self.ranking = None  # (tile scores, tissue, tile_size, scale), kept so a box resize skips the model
+        self.ranking = None  # (tile scores, tissue, tile_size, scale, mpp), kept so box changes skip the model
         self.history = [(None, 0.0)]
         self.lock = threading.Lock()
 
@@ -179,10 +196,10 @@ def run_job(job, job_id, slide, path, cfg, backend, store, job_dir):
         job.advance("ranking", 0.95)
         classes = cfg["classes"]
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
-        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale)
-        # On disk too, so a box resize still works for this job after a restart (data/, never committed).
+        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale, slide.mpp)
+        # On disk too, so box changes still work for this job after a restart (data/, never committed).
         np.savez(job_dir / "ranking.npz", probs=grid_probs, tissue=grid.tissue, tile_size=grid.tile_size,
-                 scale=grid.scale)
+                 scale=grid.scale, mpp=slide.mpp)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
         (job_dir / "heatmap.png").write_bytes(job.heatmap_png)
@@ -192,6 +209,7 @@ def run_job(job, job_id, slide, path, cfg, backend, store, job_dir):
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
             regions_url=f"/api/jobs/{job_id}/regions",
+            measure_url=f"/api/jobs/{job_id}/measure",
             box_um=default_box_um(cfg),
             box_sizes_um=cfg["box_sizes_um"],
             tiles=TileInfo(count=len(tiles), capped=grid.capped),
@@ -270,7 +288,16 @@ def create_app(cfg=None, store=None):
         if not JOB_ID.match(job_id) or not path.is_file():
             return None
         with np.load(path) as f:
-            return f["probs"], f["tissue"], int(f["tile_size"]), float(f["scale"])
+            mpp = float(f["mpp"]) if "mpp" in f.files else cfg["default_mpp"]  # files saved before the free box
+            return f["probs"], f["tissue"], int(f["tile_size"]), float(f["scale"]), mpp
+
+    def done_ranking(request, job_id):
+        """A finished job's tile scores: 404 for an unknown job, 409 while it's running or if it failed."""
+        status = get_status(request, job_id)
+        ranking = get_ranking(request, job_id) if status.status == "done" else None
+        if ranking is None:
+            raise HTTPException(409, "This analysis is still running, or it failed. Boxes can change once it's done.")
+        return ranking
 
     def get_png(request, job_id, name):
         job = request.app.state.jobs.get(job_id)
@@ -318,17 +345,23 @@ def create_app(cfg=None, store=None):
     @app.get("/api/jobs/{job_id}/regions", response_model=Regions)
     def regions_at_size(request: Request, job_id: str, box_um: float):
         """Re-rank a finished job's stored tile scores with another box size. The model isn't run again."""
-        status = get_status(request, job_id)  # 404 for an unknown id
+        get_status(request, job_id)  # 404 for an unknown id, before the size check
         try:
             n = box_tiles(cfg, box_um)
         except ValueError as e:
             raise HTTPException(400, str(e)) from e
-        ranking = get_ranking(request, job_id) if status.status == "done" else None
-        if ranking is None:
-            raise HTTPException(409, "This analysis is still running, or it failed. Box size can change once it's done.")
-        probs, tissue, tile_size, scale = ranking
+        probs, tissue, tile_size, scale, _ = done_ranking(request, job_id)
         regions, note = rank_regions(probs, tissue, {**cfg, "region_tiles": n}, tile_size, scale)
         return Regions(box_um=box_um, regions=[Region(**r) for r in regions], note=note)
+
+    @app.get("/api/jobs/{job_id}/measure", response_model=MeasuredBox)
+    def measure(request: Request, job_id: str, x: float, y: float, w: float, h: float):
+        """Measure a free-form box from the stored tile scores. The model isn't run again."""
+        probs, tissue, tile_size, scale, mpp = done_ranking(request, job_id)
+        try:
+            return MeasuredBox(**measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h))
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
 
     @app.get("/api/jobs/{job_id}/display.png")
     def display_png(request: Request, job_id: str):

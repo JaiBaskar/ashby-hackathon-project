@@ -160,6 +160,65 @@ def rank_regions(probs, tissue, cfg, tile_size, scale):
     return picked, _note(len(picked), n_windows, cfg)
 
 
+def _overlap(start, end, n):
+    """How much of each of n unit cells the interval [start, end) covers (0–1 per cell)."""
+    edges = np.arange(n)
+    return np.clip(np.minimum(end, edges + 1) - np.maximum(start, edges), 0, 1)
+
+
+def measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h):
+    """Composition, score and reasons for any rectangle, in display pixels, drawn by the user.
+
+    Each tile counts by the share of it the box covers, so the box needn't line up with the tile grid.
+    The box is clipped to the tile grid. Tiles that weren't analyzed (glass, or dropped by max_tiles)
+    count toward coverage but not composition. A box on exactly a suggested region gives that region's numbers.
+    """
+    rows, cols = tissue.shape
+    px = tile_size / scale  # display px per tile
+    x0, y0 = max(x, 0.0), max(y, 0.0)
+    x1, y1 = min(x + w, cols * px), min(y + h, rows * px)
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("The box is empty or outside the analyzed part of the image. Draw it over the tissue.")
+    weight = np.outer(_overlap(y0 / px, y1 / px, rows), _overlap(x0 / px, x1 / px, cols))
+    area = weight.sum()
+    analyzed = ~np.isnan(probs).any(axis=-1)
+    tile_w = np.where(analyzed, weight, 0.0)
+    if tile_w.sum() <= 0:
+        raise ValueError("This box has no analyzed tissue in it. Move it over the tissue.")
+
+    classes = cfg["classes"]
+    filled = np.nan_to_num(probs)
+    comp = (filled * tile_w[..., None]).sum(axis=(0, 1)) / tile_w.sum()
+    t, k = classes.index("tumor"), classes.index("necrosis")
+    tumor_std = float(np.sqrt((tile_w * (filled[..., t] - comp[t]) ** 2).sum() / tile_w.sum()))
+    score = float(comp[t] - cfg["weights"]["necrosis"] * comp[k] - cfg["weights"]["variation"] * tumor_std)
+    coverage = float((weight * tissue).sum() / area)
+    cut = cfg["reason_cutoffs"]
+
+    reasons = []
+    if comp[k] <= cut["low_necrosis"]:
+        reasons.append(f"Low necrosis ({pct(comp[k])}), which favors good DNA yield")
+    if coverage >= cut["full_coverage"]:
+        reasons.append(f"Fully on tissue ({pct(coverage)} coverage)")
+    elif coverage < cfg["min_coverage"]:
+        reasons.append(f"Only {pct(coverage)} on tissue: part of this box is glass or edge")
+    if tumor_std <= cut["low_variation"]:
+        reasons.append("Tumor content is even across the box (low variation)")
+    if area < 4:
+        reasons.append(f"Covers fewer than 4 tiles ({area:.1f}), so these numbers rest on very few tiles")
+
+    return {
+        "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
+        "width_um": (x1 - x0) * scale * mpp, "height_um": (y1 - y0) * scale * mpp,
+        "tiles": float(area),
+        "score": score,
+        "tissue_coverage": coverage,
+        "tumor_std": tumor_std,
+        "composition": {c: float(v) for c, v in zip(classes, comp)},
+        "reasons": reasons,
+    }
+
+
 def tumor_heatmap(probs, classes, tile_size, scale, display_size):
     """Transparent RGBA overlay at display size: each analyzed tile tinted with opacity ∝ its tumor probability."""
     tumor = probs[..., classes.index("tumor")]

@@ -139,3 +139,13 @@ One line each: decision + reason.
 - Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
 - The tile-score grid behind box resizing is also saved as `data/jobs/<id>/ranking.npz` (gitignored), so changing the box size still works for a job after a restart.
 - After the merge with the box-size work, `main` had `model: conch` in `config.yaml`. The API tests now force the demo model in their fixture, and Playwright starts FastAPI with `PROJECT_MODEL=fake` (a new override in `load_config`), so `make test` still needs no token, weights or GPU (AGENTS.md §7) while `make dev` uses CONCH.
+
+## Free-form box
+- Users can draw their own rectangle on the slide ("Draw a box"), or turn a suggested region into one ("Adjust this box"), then move it and resize it from 8 handles, like a screenshot selection. Dragging a side past the opposite one flips the box. Arrow keys move it 16 display px, and Shift + arrow keys resize it from the bottom-right; from the keyboard, "Draw a box" places a best-region-sized box in the middle and focuses it.
+- `GET /api/jobs/{id}/measure?x=&y=&w=&h=` (display px) measures any rectangle from the job's stored tile scores; the model isn't run again. Each tile counts by the share of it the box covers, so the box needn't line up with the 128 µm grid. A box placed exactly on a suggested region gives that region's score, composition and tumor std (tested).
+- Unanalyzed tiles (glass, or dropped by `max_tiles`) count toward coverage but not composition; a box with no analyzed tile is a 400 that says to move it over tissue. The box is clipped to the tile grid, which drops the partial right and bottom edge of the image.
+- Free-box reasons only state facts about the box itself (low necrosis, coverage, evenness), plus a warning when it covers fewer than 4 tiles' worth of area, since those numbers rest on very few tiles. It has no rank, so there's no "highest of all candidates" reason.
+- Pointer drags measure once, on release; keyboard changes wait 300 ms after the last key. Only the latest request's answer is shown.
+- The free box is dashed (the suggestions are solid), with the same black outer outline, so it's distinguishable without color and keeps contrast on both stains.
+- jsdom has no `PointerEvent`; `vitest.setup.ts` adds a small MouseEvent-based stand-in for the drag tests.
+- The image scale (µm/px) is saved with the tile scores in `ranking.npz`, so a free box still gets its size in µm after a restart; files saved before this fall back to `default_mpp`.
