@@ -2,7 +2,8 @@
 
     python -m project.tcga labels               # login node: GDC + ABSOLUTE → <tcga_dir>/labels.csv
     python -m project.tcga download --yes       # login node: selected slides → <tcga_dir>/slides/ (asks without --yes)
-    python -m project.tcga score                # GPU job only: CONCH on each downloaded slide → app_scores.csv
+    python -m project.tcga score --split train  # GPU job only: CONCH on each downloaded slide → app_scores.csv
+    python -m project.tcga check --split train  # CPU: app vs. pathologist on train only, before test is scored
     python -m project.tcga evaluate             # CPU: results/tcga_validation.json
 
 labels.csv, slides and per-slide scores are patient-level and stay under tcga_dir (or $TCGA_DIR) (gitignored, AGENTS.md §3, §6).
@@ -109,6 +110,34 @@ def evaluate(labels, scores, tcga_cfg, seed):
     return out
 
 
+def split_check(labels, scores, split, cutoff):
+    """Aggregate app vs. pathologist numbers on one non-test split, to judge the method before touching test.
+
+    Never the test split: anything tuned after looking at test results would inflate the final claim.
+    """
+    if split == "test":
+        raise ValueError("check never looks at the test split; use `evaluate` once the method is fixed")
+    df = labels[labels["split"] == split].merge(scores[["slide_id", "app_tumor_pct"]], on="slide_id")
+    df = df[df["app_tumor_pct"].notna()]
+    if len(df) < 3:
+        raise ValueError(f"only {len(df)} scored {split} slides; score more first")
+    truth = df["truth_pct"].to_numpy()
+    out = {"split": split, "n_slides": int(len(df)), "n_hospitals": int(df["hospital"].nunique()),
+           "n_below_cutoff": int((truth < cutoff).sum())}
+    for name, col in (("pathologist", "pathologist_pct"), ("app_raw", "app_tumor_pct")):
+        pred = df[col].to_numpy()
+        out[name] = {"pearson_r": pearson_r(truth, pred), "mae": mae(truth, pred),
+                     "min": float(pred.min()), "median": float(np.median(pred)), "max": float(pred.max())}
+    out["truth"] = {"min": float(truth.min()), "median": float(np.median(truth)), "max": float(truth.max())}
+    return out
+
+
+def slides_to_score(labels, done, splits, exists):
+    """Selected slides of the given splits that are downloaded and not yet scored, in labels.csv order."""
+    picked = labels[labels["selected"] & labels["split"].isin(splits)]
+    return [s for s in picked["slide_id"] if s not in done and exists(s)]
+
+
 # --- command line ---------------------------------------------------------------------------------
 
 def tcga_dir(cfg):
@@ -164,10 +193,11 @@ def cmd_score(cfg, args):
     labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
     out_path = tcga_dir(cfg) / "app_scores.csv"
     done = set(pd.read_csv(out_path)["slide_id"]) if out_path.exists() else set()
-    todo = [s for s in labels.loc[labels["selected"], "slide_id"] if s not in done and slide_path(cfg, s).exists()]
+    todo = slides_to_score(labels, done, args.split, lambda s: slide_path(cfg, s).exists())
     if args.limit:
         todo = todo[:args.limit]
-    print(f"Scoring {len(todo)} slides with {backend.name} ({len(done)} already scored)", flush=True)
+    print(f"Scoring {len(todo)} {'/'.join(args.split)} slides with {backend.name} "
+          f"({len(done)} already scored)", flush=True)
     for i, slide_id in enumerate(todo, 1):
         start = time.monotonic()
         try:
@@ -193,6 +223,16 @@ def cmd_evaluate(cfg, args):
     print(json.dumps(result, indent=2))
 
 
+def cmd_check(cfg, args):
+    labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
+    scores = pd.read_csv(tcga_dir(cfg) / "app_scores.csv")
+    out = split_check(labels, scores, args.split, cfg["tcga"]["catch_cutoff"])
+    out.update(prompt_set=cfg["prompt_set"], model=sorted(scores["model"].dropna().unique()))
+    path = repo_path(cfg["paths"]["results"]) / f"tcga_check_{args.split}_{cfg['prompt_set']}.json"
+    path.write_text(json.dumps(out, indent=2) + "\n")
+    print(json.dumps(out, indent=2))
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="python -m project.tcga", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -203,12 +243,16 @@ def main(argv=None):
     d.add_argument("--yes", action="store_true", help="actually download (after a human approved the size)")
     s = sub.add_parser("score")
     s.add_argument("--model", default="conch", choices=["conch", "fake"])
+    s.add_argument("--split", nargs="+", default=["train", "test"], choices=["train", "cal", "test"])
     s.add_argument("--limit", type=int, default=0, help="score at most this many slides (0 = all)")
+    c = sub.add_parser("check")
+    c.add_argument("--split", default="train", choices=["train", "cal"])
     e = sub.add_parser("evaluate")
     e.add_argument("--allow-fake", action="store_true", help="for pipeline checks only; never report these numbers")
     args = p.parse_args(argv)
     cfg = load_config()
-    {"labels": cmd_labels, "download": cmd_download, "score": cmd_score, "evaluate": cmd_evaluate}[args.cmd](cfg, args)
+    {"labels": cmd_labels, "download": cmd_download, "score": cmd_score, "check": cmd_check,
+     "evaluate": cmd_evaluate}[args.cmd](cfg, args)
 
 
 if __name__ == "__main__":

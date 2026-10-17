@@ -45,16 +45,18 @@ python -m pytest backend -m delta -v                   # the Phase 1 checks on t
 cd backend && python -m project.tcga download && cd ..
 cd backend && python -m project.tcga download --yes && cd ..          # approval (tens of GB)
 
-# 3. CONCH scores (GPU): 5 slides first, check them, then the rest. Resumable.
+# 3. CONCH scores (GPU): 5 slides first, then train only, check, then test. Resumable.
 mkdir -p logs && sbatch scripts/tcga_score.sbatch --limit 5           # approval
-sbatch scripts/tcga_score.sbatch                                      # approval, after checking the 5
+sbatch scripts/tcga_score.sbatch --split train                        # approval, after checking the 5
 tail -n 50 logs/<jobid>.out
+cd backend && python -m project.tcga check --split train && cd ..     # app vs. pathologist on train only
+sbatch scripts/tcga_score.sbatch --split test                         # approval, once the method is fixed
 
 # 4. the comparison (CPU, seconds): writes results/tcga_validation.json
 cd backend && python -m project.tcga evaluate
 ```
 
-`results/tcga_validation.json` reports, on the test hospitals only: slide and hospital counts, MAE, Pearson r and the catch rate below 60% for the pathologist, the raw app % and the app % after a straight-line mapping fit on the train hospitals; and a 1,000-resample bootstrap of (pathologist MAE − app MAE) with its 95% interval. The app is called "better" only if that interval is entirely above 0. `labels.csv`, the slides and per-slide scores stay in `$TCGA_DIR` and are never committed.
+`results/tcga_validation.json` reports, on the test hospitals only: slide and hospital counts, MAE, Pearson r and the catch rate below 60% for the pathologist, the raw app % and the app % after a straight-line mapping fit on the train hospitals; and a 1,000-resample bootstrap of (pathologist MAE − app MAE) with its 95% interval. The app is called "better" only if that interval is entirely above 0. `check` never looks at the test split: any change to the method (e.g. the prompts) is judged on train hospitals only, so the test result stays honest. `labels.csv`, the slides and per-slide scores stay in `$TCGA_DIR` and are never committed.
 
 ## Credits
 

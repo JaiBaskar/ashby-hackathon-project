@@ -124,3 +124,8 @@ One line each: decision + reason.
 - Scoring is resumable (appends one row per slide to app_scores.csv; a failed slide records its error and is left out), so a timed-out job can be resubmitted. Per AGENTS.md §8 Phase 3, the first job is `--limit 5`.
 - Smoke test: `score --model fake` and `evaluate --allow-fake` ran end to end on 6 synthetic tiled TIFFs saved as .svs in a scratch TCGA_DIR; the second `score` run skipped all 6.
 - Frontend tests on this PC needed `npm ci` again (teammates added `@testing-library/user-event`); then 64/64 passed.
+
+## Phase 8: first CONCH run and a train-first check
+- 5-slide GPU check (job 22955904): all ok, ~30 s per slide (12–38 s), model conch, scanner mpp 0.5, 627–2,000 tiles. The whole-slide tumor % was 1.5–6.1% on all five, far below typical LUAD purity, and necrosis was high on two (19%, 48%). Likely causes: frozen-section look (CONCH and the CRC check are FFPE) and generic prompts.
+- So scoring goes train first: `score --split train`, then `check --split train` prints aggregate app vs. pathologist numbers (Pearson r, MAE, ranges) on train hospitals only and writes `results/tcga_check_train_<prompt_set>.json`. `check` refuses the test split: any prompt change is judged on train only, and test is scored and evaluated once, after the method is fixed.
+- Python 3.11 on Delta (pytorch-conda/2.8): nested same-quote f-strings are 3.12-only, so one was rewritten; a tokenizer scan found no others in backend/.

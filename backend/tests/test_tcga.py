@@ -117,3 +117,34 @@ def test_tcga_dir_env_var_wins(cfg, monkeypatch, tmp_path):
     assert tcga_dir(cfg).name == "tcga"
     monkeypatch.setenv("TCGA_DIR", str(tmp_path))
     assert tcga_dir(cfg) == tmp_path
+
+
+# --- train-only checks before the test split is touched -------------------------------------------
+
+from project.tcga import slides_to_score, split_check
+
+
+def test_slides_to_score_filters_by_split_and_skips_done():
+    labels = pd.DataFrame({"slide_id": ["a", "b", "c", "d", "e"],
+                           "split": ["train", "test", "train", "train", "cal"],
+                           "selected": [True, True, True, False, True]})
+    on_disk = {"a", "b", "c", "d", "e"} - {"c"}
+    todo = slides_to_score(labels, done={"x"}, splits=["train"], exists=lambda s: s in on_disk)
+    assert todo == ["a"]                       # c isn't downloaded, d isn't selected, b and e are other splits
+    assert slides_to_score(labels, done={"a"}, splits=["train", "test"], exists=lambda s: True) == ["b", "c"]
+
+
+def test_split_check_uses_only_that_split(cfg):
+    labels, scores = labels_and_scores()
+    out = split_check(labels, scores, "train", cutoff=cfg["tcga"]["catch_cutoff"])
+    train = labels[labels.split == "train"].merge(scores, on="slide_id")
+    assert out["split"] == "train" and out["n_slides"] == 40
+    assert out["app_raw"]["pearson_r"] == pytest.approx(np.corrcoef(train.app_tumor_pct, train.truth_pct)[0, 1])
+    assert out["pathologist"]["mae"] == pytest.approx(np.abs(train.pathologist_pct - train.truth_pct).mean())
+    assert out["app_raw"]["min"] <= out["app_raw"]["median"] <= out["app_raw"]["max"]
+
+
+def test_split_check_refuses_the_test_split(cfg):
+    labels, scores = labels_and_scores()
+    with pytest.raises(ValueError, match="test"):
+        split_check(labels, scores, "test", cutoff=60)

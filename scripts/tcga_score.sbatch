@@ -3,7 +3,8 @@
 # app_scores.csv are skipped, so a second job picks up where a timed-out one stopped.
 # Full steps: README.md § "TCGA validation". Submit from the repo root, after human approval (CLAUDE.md):
 #   mkdir -p logs && sbatch scripts/tcga_score.sbatch --limit 5     # first 5 slides only; check them
-#   mkdir -p logs && sbatch scripts/tcga_score.sbatch               # then the rest
+#   mkdir -p logs && sbatch scripts/tcga_score.sbatch --split train # then train; `check` it
+#   mkdir -p logs && sbatch scripts/tcga_score.sbatch --split test  # then test, once the method is fixed
 # 1 h 30 min: inside the 2 h cap. Every job must end before Sun 7:59 am and Sun 6:00 pm (rules.md §3).
 #SBATCH --job-name=puppymoggers-tcga-score
 #SBATCH --account=bfqi-delta-gpu
