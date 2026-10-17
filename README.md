@@ -17,8 +17,9 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 | `make setup` | Python venv (`.venv`) and frontend packages |
 | `make setup-real` | Adds torch and CONCH, for the real model |
 | `make dev` | Starts the app at http://localhost:3000 (Next.js, with FastAPI on :8000) |
-| `make test` | All fast tests: no GPU, internet or token needed (uses the demo model) |
-| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`) |
+| `make test` | All fast tests: backend, Vitest and Playwright end-to-end. No GPU, internet or token needed (uses the demo model) |
+| `make test-e2e` | Only the Playwright flows; also saves screenshots to `reports/screenshots/` |
+| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`). On Delta: `scripts/test_real.sbatch` |
 
 All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 
@@ -28,4 +29,4 @@ All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 - **CRC-VAL-HE-7K** (tile set for the accuracy check): Kather, J.N. et al. *Predicting survival from colorectal cancer histology slides using deep learning: a retrospective multicenter study.* PLOS Medicine 16(1): e1002730 (2019). Zenodo record 1214456.
 - **OpenSlide**: Goode, A. et al. *OpenSlide: A vendor-neutral software foundation for digital pathology.* J Pathol Inform 4:27 (2013).
 - **Fonts**: Newsreader (Production Type) and IBM Plex Sans (IBM), both SIL Open Font License 1.1, bundled through the Fontsource packages.
-- Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library.
+- Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.

@@ -2,12 +2,12 @@
 PY ?= .venv/bin/python
 FAST := not realmodel and not gpu and not delta
 
-.PHONY: setup setup-real dev test test-backend test-frontend test-real
+.PHONY: setup setup-real dev test test-backend test-frontend test-e2e test-real
 
 setup:
 	python3.12 -m venv .venv
 	$(PY) -m pip install -r backend/requirements.txt
-	cd frontend && npm ci
+	cd frontend && npm ci && npx playwright install chromium
 
 # Real CONCH (torch + conch). On Delta, use the pytorch-conda module's torch instead (AGENTS.md §5).
 setup-real: setup
@@ -18,13 +18,18 @@ setup-real: setup
 dev:
 	trap 'kill 0' EXIT; 	$(PY) -m uvicorn --factory --app-dir backend project.api:create_app --port 8000 & 	cd frontend && npm run dev
 
-test: test-backend test-frontend
+test: test-backend test-frontend test-e2e
 
 test-backend:
 	$(PY) -m pytest backend -m "$(FAST)" -q
 
 test-frontend:
 	cd frontend && npm test
+
+# Playwright: FastAPI (demo model) + a production Next.js build, on ports 8100 and 3100. Also saves
+# reports/screenshots/. Uses PY for the backend and the fixture script.
+test-e2e:
+	cd frontend && PYTHON=../$(PY) npm run test:e2e
 
 test-real:
 	$(PY) -m pytest backend -m realmodel -v
