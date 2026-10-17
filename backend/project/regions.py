@@ -21,6 +21,23 @@ def parse_pct(text):
     return [int(m) for m in re.findall(r"(\d+)%", text)]
 
 
+def tile_um(cfg):
+    return cfg["tile_px"] * cfg["target_mpp"]
+
+
+def default_box_um(cfg):
+    return cfg["region_tiles"] * tile_um(cfg)
+
+
+def box_tiles(cfg, box_um):
+    """Tiles per box side for one of the offered box sizes (config box_sizes_um)."""
+    offered = cfg["box_sizes_um"]
+    if not any(abs(box_um - size) < 1e-6 for size in offered):
+        sizes = ", ".join(f"{size:g}" for size in offered)
+        raise ValueError(f"Box size {box_um:g} µm is not one of the sizes on offer ({sizes} µm).")
+    return round(box_um / tile_um(cfg))
+
+
 def region_score(tumor, necrosis, weights):
     """tumor − w_necrosis × necrosis − w_variation × std(tumor across tiles), from per-tile values."""
     tumor, necrosis = np.asarray(tumor, float), np.asarray(necrosis, float)

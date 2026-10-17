@@ -119,3 +119,12 @@ One line each: decision + reason.
 - `results/conch_auroc_v1.json` from the first run is replaced by `conch_auroc_crc_v1.json`, which reproduces the same value.
 - This supersedes the Phase 7 note that `make test-real` didn't run: it now runs on this Mac (MPS) with the cached weights and `HF_HUB_OFFLINE=1`.
 - `v1` was then removed from `config.yaml` and the real-model tests, at the team's request, so `v2` is the only prompt set. Its wording is still in git history (commit `c62722d`). The `v1` result files are kept as the record of the comparison that retired it.
+
+## Box size utility
+- The results screen offers box sizes from `config.yaml` `box_sizes_um` (512, 1024, 2048 µm, shown as 0.5, 1 and 2 mm), so the box can match the punch or core that will be cut. The default stays `region_tiles: 4` (512 µm).
+- Changing size doesn't run the model again. Each job keeps its tile-score grid, tissue grid and scale; `GET /api/jobs/{id}/regions?box_um=…` re-ranks them with `region_tiles = box_um ÷ 128`. The tiles themselves stay 256 px at 0.5 µm/px: they're sized for the model, and the box only averages more or fewer of them.
+- Sizes are a fixed list, not free input: every box is a whole number of 128 µm tiles (checked when config loads), each size can be tested, and scores at one size stay comparable. A size not on the list is a 400 that names the ones on offer; a job that isn't done yet is a 409.
+- 512 µm is labeled "0.5 mm" in the picker; the region panel keeps the exact size ("512 µm square").
+- One size per ranking: boxes of different sizes are never mixed, because a small box can sit inside one tumor pocket and would always outscore a larger one.
+- The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
+- The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
