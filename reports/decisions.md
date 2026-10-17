@@ -13,3 +13,13 @@ One line each: decision + reason.
 - `make dev` starts only the frontend until the API exists (Phase 4).
 - `config.yaml` sits at the repo root; `PROJECT_CONFIG` can point elsewhere (e.g. tests, Delta).
 - On this Mac, `make` only runs as `DEVELOPER_DIR=/Library/Developer/CommandLineTools make …`: `xcode-select` points at Xcode.app, whose make shim fails. A human fix (e.g. `sudo xcode-select -s /Library/Developer/CommandLineTools`) is out of scope for an agent.
+
+## Phase 1
+- OpenSlide from the `openslide-bin` 4.0.1.2 wheel (bundles the C library; no `brew install`); import confirmed.
+- The .svs/.tiff path is tested with tiny tiled TIFFs generated inside the tests (zlib, mpp in the TIFF resolution tags, which OpenSlide reports as `openslide.mpp-x`); nothing binary is committed.
+- .tif/.tiff go to OpenSlide first (tiled or pyramidal scans, with their mpp); plain untiled TIFFs fall back to Pillow, with an estimated scale.
+- A scan's own mpp wins over a typed one; photos use the typed mpp, then `default_mpp`, and are marked estimated.
+- Tissue = HSV saturation ≥ `tissue_min_saturation` (glass is unsaturated, H&E isn't), measured on the display image; a tile's tissue fraction is the mean over its footprint there. This is cheap even for whole-slide scans.
+- The tile grid starts at (0, 0) and drops the partial right and bottom edge, so every tile is fully inside the image.
+- Transparent pixels (PNG alpha, outside an OpenSlide region) are composited onto white so they read as glass; phone photos are EXIF-rotated.
+- An image smaller than one tile at its scale is an `IngestError` with a message about the scale, not "No tissue found".
