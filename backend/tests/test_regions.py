@@ -1,5 +1,6 @@
 """Phase 3: region ranking, rule-based reasons and the tumor heatmap. Synthetic score grids only, no images."""
 
+import colorsys
 import re
 
 import numpy as np
@@ -7,6 +8,7 @@ import pytest
 
 from project.config import load_config
 from project.regions import (
+    HEATMAP_RGB,
     parse_pct,
     pct,
     rank_regions,
@@ -16,6 +18,7 @@ from project.regions import (
     tumor_heatmap,
 )
 from project.tiling import Tile
+from tests.synthetic import PINK, PURPLE
 
 
 @pytest.fixture
@@ -300,3 +303,14 @@ def test_slide_composition_is_the_mean_over_tiles_and_sums_to_one(cfg):
     assert list(comp) == classes
     assert comp["tumor"] == pytest.approx(0.4)
     assert sum(comp.values()) == pytest.approx(1.0)
+
+
+def _hue_deg(rgb):
+    return colorsys.rgb_to_hsv(*(v / 255 for v in rgb))[0] * 360
+
+
+@pytest.mark.parametrize("stain", [PINK, PURPLE])
+def test_heatmap_tint_hue_is_far_from_both_stains(stain):
+    # The overlay sits on eosin pink and hematoxylin purple; a tint near either hue disappears into the tissue.
+    gap = abs(_hue_deg(HEATMAP_RGB) - _hue_deg(stain)) % 360
+    assert min(gap, 360 - gap) >= 60
