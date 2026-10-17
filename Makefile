@@ -13,10 +13,10 @@ setup:
 setup-real: setup
 	$(PY) -m pip install -r backend/requirements-real.txt
 
-# Next.js on http://localhost:3000. It forwards /api/* to FastAPI (API_URL, default http://localhost:8000),
-# which runs the Python ML code. The FastAPI server arrives in Phase 4; until then this starts Next.js only.
+# Next.js on http://localhost:3000 and FastAPI on http://localhost:8000. Next forwards /api/* to FastAPI
+# (API_URL), which runs the Python ML code. Ctrl-C stops both.
 dev:
-	cd frontend && npm run dev
+	trap 'kill 0' EXIT; 	$(PY) -m uvicorn --factory --app-dir backend project.api:create_app --port 8000 & 	cd frontend && npm run dev
 
 test: test-backend test-frontend
 

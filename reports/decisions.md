@@ -47,3 +47,27 @@ One line each: decision + reason.
 - `frontend/AGENTS.md` is written by `next dev` (verified in `next/dist/server/lib/generate-agent-files.js`) and committed, so it doesn't keep showing up as a change.
 - Planned App Router layout for Phase 6: `/`, `/upload`, `/jobs/[id]`. Each job gets a URL that survives a reload.
 - In this agent's sandbox, Python processes can't accept local connections, though Node can (the macOS firewall is off). So the upload check used a Node stand-in for FastAPI. FastAPI's own tests (Phase 4) use the in-process TestClient.
+
+## Phase 3
+- Windows dev machine: Python 3.12.10 and Node 24.20.0 (LTS) installed with winget, at the user's request. There's no `make`, so the suite ran as `.venv/Scripts/python -m pytest backend -m "not realmodel and not gpu and not delta"` and `npm test` (the Makefile's `.venv/bin/python` path is Mac/Linux only).
+- `rank_regions` takes the full `[rows, cols, classes]` score grid (NaN for tiles dropped by the `max_tiles` cap) and the tissue grid. A region's composition, score and tumor std use its analyzed tiles; coverage uses every tile's tissue fraction.
+- Tumor std is the population std (ddof=0) across the region's tiles, matching the hand-computed test.
+- Candidates tie-break on (row, col) after score, so equal scores always give the same order.
+- Rank 1 always gets "Highest overall score of all candidates (0.79)": true by construction, so the best region never shows an empty reason list.
+- "Highest tumor content" is checked against every eligible window, not just the 5 picked, as the brief says.
+- Ranks 2–5 compare tumor with the best region using the rounded percentages shown, so the quoted gap always matches the two numbers on screen. When a lower-ranked region has more tumor, the reason says so and names necrosis or unevenness as the cause.
+- `size_um` = N × `tile_px` × `target_mpp` always (scale is never unknown: photos fall back to `default_mpp` and are marked estimated).
+- Heatmap: one tint (`HEATMAP_RGB`), opacity = tumor × 0.85; unanalyzed tiles are transparent. Drawn at tile resolution and scaled up with nearest-neighbour, so each tile is a crisp block.
+- Test fixture fix: the overlap/coverage test drew tissue from U(0.6, 1.0), so no window could reach `min_coverage` 0.9. Changed to U(0.8, 1.0): 203 of 441 windows are eligible, so the filter is exercised. The 0.9 threshold didn't move.
+
+## Phase 4
+- FastAPI 0.143.3, uvicorn 0.54.0, python-multipart 0.0.32 (needed for form uploads). The TestClient uses `httpx2` 2.13.1: Starlette 1.8 warns that plain `httpx` is deprecated for it, and tests pass with httpx2 alone.
+- App factory `create_app(cfg)`, run with `uvicorn --factory`, so importing the module never loads a model and tests can pass their own config. It calls `load_backend` first, so a missing CONCH token stops the server before it serves anything.
+- One background thread per job with an in-memory store (no queue library): enough for a demo, and the TestClient sees real polling. Jobs are lost on restart; the 404 message says so.
+- The file type is checked against the user's filename before anything is written (400 names their file); the body is streamed to disk in 1 MB chunks and stops with 413 once it passes `max_upload_mb`; then `open_slide` decodes it, so a corrupt file is a 400 right away.
+- Each job records every (step, progress) it reaches in `Job.history`; `advance` ignores any move backwards, and the test checks both the history and what polling saw.
+- display.png and heatmap.png are kept as PNG bytes in memory; the upload file is deleted when the job ends (closed first, since Windows can't delete an open file).
+- Unexpected worker errors show "Analysis failed (<type>). Try another image." and log the traceback server-side, so internals don't reach the browser.
+- `make dev` starts uvicorn on :8000 in the background and `next dev` in the foreground; `trap 'kill 0' EXIT` stops both on Ctrl-C.
+- Live check (uvicorn on Windows, synthetic 2048×1536 fixture): job done, 28 tiles, 1 region with a note, display.png served, upload deleted. The fixture only fits one 4×4 region; Phase 7's fixture must be bigger (brief §5, Phase 7).
+- Note grammar fixed for exactly one region ("1 region is ... so 1 is shown").
