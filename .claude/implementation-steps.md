@@ -4,6 +4,8 @@ Build plan for the Ashby Hackathon (UIUC) web app, written 2026-10-17 from the t
 
 The app: a user uploads a photo or scan of a biopsy slide. The backend tiles it, scores each tile with CONCH, and ranks regions. The results screen draws boxes around the **top 5 regions to sample** and marks the best one. Clicking a box explains that region: its cell composition, why it was chosen, and how it compares with the other regions. It must look like a finished product, not a template.
 
+**Stack in one line:** a Next.js frontend talks to a FastAPI service, and all the ML logic (ingest, tiling, CONCH, ranking) stays in Python behind it.
+
 ---
 
 ## 0. Read these first
@@ -17,6 +19,8 @@ The app: a user uploads a photo or scan of a biopsy slide. The backend tiles it,
 
 Every MUST/NEVER in those files applies to this build, except the overrides in §1.
 
+`frontend/AGENTS.md` is a different file: `next dev` writes it, and it only says to read the Next.js docs bundled with the installed version before writing Next.js code (see §2, rule 8).
+
 **When you're unsure about anything this file doesn't settle, check `.claude/rules.md` first and follow it.** This covers where code may run, GPU use, storage, models, data, secrets and credits. If rules.md doesn't answer it either, follow the stricter of CLAUDE.md and AGENTS.md, and log the decision in `reports/decisions.md`.
 
 ## 1. Where this brief overrides the rule files
@@ -28,7 +32,7 @@ AGENTS.md puts the human's instructions first, and this file carries the human's
 | Pausing between phases | CLAUDE.md: plan mode at each phase start, wait for approval | Don't stop between Phases 0–7. Put the phase's test list in the task list and keep going. |
 | Commands that need approval | CLAUDE.md: ask before `sbatch`/`srun`/`salloc`/`scancel`, `hf download`, downloads > 1 GB, `git push`, `git reset --hard`, `rm -rf` | **No override.** Still ask, showing the exact command. |
 | A test that looks wrong | AGENTS.md §2: stop and explain to the human | Fix it, log it in `decisions.md`, explain it in `final.md`. Never to make broken code pass, and never by moving a threshold this file sets. |
-| Repo layout | AGENTS.md §3: `src/purity/`, `tests/` | `backend/project/`, `backend/tests/`, `frontend/`. AGENTS.md §3's principle still holds: every path, seed and threshold lives in `config.yaml`. |
+| Repo layout | AGENTS.md §3: `src/purity/`, `tests/` | `backend/project/` and `backend/tests/` (FastAPI and all the Python ML code), `frontend/` (Next.js). AGENTS.md §3's principle still holds: every path, seed and threshold lives in `config.yaml`. |
 | Test commands and markers | AGENTS.md §7: `pytest -m "not gpu and not delta"` | `make test` and `make test-real`, marker `realmodel`. Register `realmodel`, `gpu` and `delta` with `--strict-markers`. `make test` excludes all three. |
 | Missing CRC dataset | AGENTS.md §2: never add `skip` | The realmodel AUROC test skips, with a clear message, only when the dataset isn't present. If the data is there and AUROC < 0.8, it fails. |
 | `HF_TOKEN` | AGENTS.md §3: environment variables only | Code reads the environment. `make dev` may load a gitignored `.env` into it. Commit only `.env.example`. |
@@ -44,14 +48,17 @@ AGENTS.md puts the human's instructions first, and this file carries the human's
 5. After each commit, print the short report CLAUDE.md asks for (tests added, pass/fail counts, any number and the file it came from, next step), then carry on.
 6. `make test` must pass with no GPU, no internet and no Hugging Face token, using `FakeBackend`. The backend part runs in under 60 s (AGENTS.md §7). Fixtures are synthetic and small. Never commit a real slide or anything over 5 MB (AGENTS.md §3).
 7. Every random choice takes its seed from `config.yaml` (AGENTS.md §3). Every metric gets a hand-computed test with the expected number written in (AGENTS.md §7): contrast ratio, AUROC, region score, and in Phase 8 MAE, Pearson r and the bootstrap.
-8. Don't invent library APIs. For CONCH, OpenSlide and FastAPI, read the installed package's source or the official docs.
+8. Don't invent library APIs. For CONCH, OpenSlide and FastAPI, read the installed package's source or the official docs. For Next.js, read the guides bundled with the installed version in `frontend/node_modules/next/dist/docs/`: Next 16 differs from older versions.
 9. Never read, print or log `.env` or a token (rules.md §8). Never `Read` or `cat` slides or large data files (CLAUDE.md).
 10. **Time target: about 1.5 hours for Phases 0–7.** Get speed from simple code (the simplest code that passes the tests, few dependencies, no extra abstractions), never from skipping tests.
 
 ## 3. Stack and where it runs
 
-- **Backend:** Python, FastAPI, Pillow, NumPy, OpenSlide (for .svs/.tiff scans), CONCH via its official loader, pytest. Pin versions.
-- **Frontend:** React + Vite + TypeScript + Tailwind CSS. Vitest + React Testing Library for components, Playwright for the end-to-end flow. Pin versions.
+- **Backend (Python):** FastAPI, Pillow, NumPy, OpenSlide (for .svs/.tiff scans), CONCH via its official loader, pytest. All the ML logic lives here: ingest, tiling, tissue detection, CONCH scoring, region ranking, reasons and the heatmap. Pin versions.
+- **Frontend (Next.js):** Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS 4, in `frontend/`. Vitest + React Testing Library for components, Playwright for the end-to-end flow. Pin versions. The frontend holds no ML: it uploads, polls and draws what the API returns.
+- **How they talk:** the browser only calls Next.js. `frontend/next.config.ts` rewrites `/api/*` to FastAPI at `API_URL` (default `http://localhost:8000`), so there's one origin and no CORS. `API_URL` is read when `next dev` or `next build` starts; a built app keeps the value it was built with.
+- **Upload size:** Next buffers proxied request bodies and cuts them off at 10 MB by default. `next.config.ts` sets `experimental.proxyClientMaxBodySize` from `max_upload_mb` in `config.yaml`, so uploads up to that size reach FastAPI whole. Keep it that way.
+- **Node:** Next 16 needs Node ≥ 20.9. Vite stays pinned at 6.4.4 as a dev dependency because Vitest runs on it, and Vite 7 needs Node ≥ 22.12.
 - **Device:** picked automatically, in order: CUDA, Apple MPS, CPU.
 - `FakeBackend` runs anywhere. `ConchBackend` runs on the laptop of a teammate who has their own CONCH access (rules.md §5), or in a Delta GPU job. Never on the Delta login node (rules.md §1). On compute nodes, pre-fetch the weights and set `HF_HUB_OFFLINE=1` (AGENTS.md §5).
 - The hosted CONCH server only answers from inside Delta (rules.md §6), so the app must not depend on it.
@@ -84,6 +91,7 @@ Every reason is built from the region's own numbers and quotes them. Emit a reas
 - For ranks 2–5: "Tumor content is 8 points lower than the best region"
 
 ### API
+FastAPI serves these routes. The browser calls the same paths on the Next.js origin, and the rewrite forwards them (§3).
 - `POST /api/jobs` (multipart: `file`, optional `mpp`) → `{ job_id }`. The brief's path was cut off; `/api/jobs` matches the other routes.
 - `GET /api/jobs/{job_id}` → `{ status: queued|running|done|error, step, progress (0–1), model, result?, error? }`
 - `step` is one of: `finding_tissue`, `tiling`, `analyzing`, `ranking`.
@@ -123,8 +131,8 @@ Every reason is built from the region's own numbers and quotes them. Emit a reas
 - A config test: `config.yaml` loads and every required key exists (`model`, `seed`, classes and prompts, `tile_px`, `target_mpp`, `default_mpp`, `max_display_px`, `max_upload_mb`, `max_tiles`, `tissue_threshold`, region size N, `min_coverage`, score weights, reason cutoffs, data paths).
 
 **Build**
-- `backend/` (package `project`, tests in `backend/tests/`), `frontend/`, `config.yaml`, `reports/`, `results/`.
-- `Makefile` with `make dev`, `make test` and `make test-real`. `make test` runs the backend fast suite and Vitest now, and Playwright once Phase 7 adds it.
+- `backend/` (package `project`, tests in `backend/tests/`), `frontend/` (Next.js App Router, with the `/api` rewrite and upload limit in `next.config.ts`), `config.yaml`, `reports/`, `results/`.
+- `Makefile` with `make dev`, `make test` and `make test-real`. `make test` runs the backend fast suite and Vitest now, and Playwright once Phase 7 adds it. `make dev` starts Next.js now, and FastAPI too from Phase 4.
 - Register the `realmodel`, `gpu` and `delta` markers with `--strict-markers` (AGENTS.md §7).
 - `.gitignore`: keep the existing line. Add `.env`, model weights (`*.pt`, `*.pth`, `*.bin`, `*.safetensors`), the AGENTS.md §3 list (`*.svs`, `*.npz`, `*.h5`, `data/`, `logs/`), `node_modules/`, build output and Playwright artifacts. Keep uploads under `data/uploads/` so they're covered.
 - `.env.example` with an empty `HF_TOKEN=`. The human creates `.env`; never create, read or print it.
@@ -192,17 +200,17 @@ Every reason is built from the region's own numbers and quotes them. Emit a reas
 - `model` in the response matches `config.yaml`.
 
 **Build**
-- A FastAPI app with an in-memory job store and a background worker per job. Reuse the Pydantic models as response models. Check the type and decode the file during upload (400 right away), and check the size while reading it (413). Run the Phase 2 startup check when the app starts.
+- A FastAPI app with an in-memory job store and a background worker per job. Reuse the Pydantic models as response models. Check the type and decode the file during upload (400 right away), and check the size while reading it (413). Run the Phase 2 startup check when the app starts. Serve every route under `/api` so the Next.js rewrite passes paths through unchanged; no CORS setup is needed. Update `make dev` to run uvicorn and `next dev` together.
 
 ### Phase 5: Design system
 Read `.claude/skills/frontend/ui-design/SKILL.md` first. No skill named "frontend-design" is installed, and this is the closest. (The agent files in `.claude/agents/` point to `~/.claude/skills/general/…`, which doesn't exist; use the repo paths here.)
 
-**Tests first:** a Vitest unit test that computes the box contrast ratios from the tokens and fails below 3:1, plus a hand-computed check (black on white = 21:1).
+**Tests first:** a Vitest unit test that computes the box contrast ratios from the tokens (read from `frontend/app/globals.css`) and fails below 3:1, plus a hand-computed check (black on white = 21:1).
 
 **Build** `frontend/DESIGN.md` and the design tokens before any screen.
 - **Direction:** a calm, clinical-precision look that lets the slide image be the hero. One display font and one body font, a neutral base, and one accent. No default Tailwind blue, no generic gradient-hero styling.
-- **Fonts:** bundle them with the app (e.g. `@fontsource/*`), not from a CDN, so offline tests pass and Phase 7 sees no console errors.
-- **Tokens:** colors, type scale, spacing, radii, shadows and motion durations live in one file (the `tailwind.config` theme or a tokens file). Components use tokens only, no one-off hex values.
+- **Fonts:** load them with `next/font/local`, from font files in the repo or an `@fontsource/*` package. Not `next/font/google` or a CDN: those need internet at build or run time, and tests must work offline with no console errors in Phase 7.
+- **Tokens:** colors, type scale, spacing, radii, shadows and motion durations live in one place: the `@theme` block in `frontend/app/globals.css` (Tailwind 4 has no `tailwind.config` by default). Components use tokens only, no one-off hex values.
 - **Light and dark mode.**
 - **Box colors:** each box style needs contrast ≥ 3:1 against both eosin pink `#E8B4C8` and hematoxylin purple `#6B4C9A`. The best box must also stand out without color: a thicker stroke plus a "Best" label.
 
@@ -211,9 +219,15 @@ Read `.claude/skills/frontend/ui-design/SKILL.md` first. No skill named "fronten
 ### Phase 6: Frontend screens
 Read `.claude/skills/frontend/ux-thinking/SKILL.md` first (states, errors, copy).
 
-**Tests first** (Vitest + React Testing Library, mocked API)
+**Structure (Next.js App Router)**
+- Routes: `/` (home), `/upload`, and `/jobs/[id]`, which shows Analyzing while the job runs and then Results. A results URL survives a reload.
+- Pages stay Server Components. Anything with state, effects, polling, drag-and-drop or click handlers is a Client Component (`'use client'`). Use `not-found.tsx` for an unknown job id (the API's 404).
+- Show the slide with a plain `<img>` whose `width` and `height` come from the result. It's a per-job PNG from the API, so the image optimizer adds nothing, and the boxes must scale with its rendered size.
+- `default_mpp` and `max_upload_mb` come from `config.yaml`: read them in `next.config.ts` and pass them to the client through `env`.
+
+**Tests first** (Vitest + React Testing Library, with `fetch` and `next/navigation` mocked)
 - Home: a clear headline, a one-line explanation, and a primary "Analyze a slide" button that opens the upload screen.
-- Upload: drag-and-drop plus a file picker; shows a preview; an optional "Image scale (µm/px)" field with the default filled in; rejects unsupported files with an inline message before uploading.
+- Upload: drag-and-drop plus a file picker; shows a preview; an optional "Image scale (µm/px)" field with the default filled in; rejects unsupported files, and files over `max_upload_mb`, with an inline message before uploading.
 - Analyzing: shows the four steps (Finding tissue → Tiling → Analyzing with CONCH → Ranking regions), highlights the current one, and shows the error state with a "Try another image" button.
 - Results: renders exactly as many boxes as regions, with rank badges 1–5; the best box uses the best color and the "Best" label.
 - **Box scaling:** with a 2048 px wide result shown at 1024 px, a region at x = 800 is drawn at 400 px. Check again after a window resize. (Mis-scaled boxes are the classic bug here.)
@@ -235,13 +249,14 @@ Read `.claude/skills/frontend/ux-thinking/SKILL.md` first (states, errors, copy)
 - Error flow: upload a blank white image → error state → "Try another image" returns to upload.
 - No console errors during either flow.
 - No horizontal scroll at 375 px.
+- An upload over 10 MB reaches FastAPI through the rewrite (Next's default body cap is 10 MB; `next.config.ts` raises it).
 
 **Fixtures**
 - Generate them with a committed script (e.g. `backend/tests/fixtures/make_fixtures.py`): a synthetic "slide" (pink tissue with purple patches on white glass) and a blank white image. Keep them small.
 - Check the arithmetic: tiles per side = image px × mpp ÷ (`tile_px` × `target_mpp`). With the default config, the slide fixture needs room for at least 5 non-overlapping N×N blocks of tissue, or the 5-box test can't pass.
 
 **Build**
-- Playwright starts the backend with `model: fake`, plus the frontend.
+- Playwright's `webServer` starts FastAPI (uvicorn, `model: fake`) and Next.js (`next build && next start`, with `API_URL` set before the build, since rewrites are fixed at build time). Tests go through Next's port, so the `/api` rewrite is covered.
 - Save screenshots of every screen at 375 px and 1440 px, in light and dark mode, to `reports/screenshots/` (`<screen>-<width>-<theme>.png`). They show only synthetic fixtures, so open them and fix any layout breakage they reveal.
 
 **Then run `make test-real`**
