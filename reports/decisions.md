@@ -59,3 +59,15 @@ One line each: decision + reason.
 - `size_um` = N × `tile_px` × `target_mpp` always (scale is never unknown: photos fall back to `default_mpp` and are marked estimated).
 - Heatmap: one tint (`HEATMAP_RGB`), opacity = tumor × 0.85; unanalyzed tiles are transparent. Drawn at tile resolution and scaled up with nearest-neighbour, so each tile is a crisp block.
 - Test fixture fix: the overlap/coverage test drew tissue from U(0.6, 1.0), so no window could reach `min_coverage` 0.9. Changed to U(0.8, 1.0): 203 of 441 windows are eligible, so the filter is exercised. The 0.9 threshold didn't move.
+
+## Phase 4
+- FastAPI 0.143.3, uvicorn 0.54.0, python-multipart 0.0.32 (needed for form uploads). The TestClient uses `httpx2` 2.13.1: Starlette 1.8 warns that plain `httpx` is deprecated for it, and tests pass with httpx2 alone.
+- App factory `create_app(cfg)`, run with `uvicorn --factory`, so importing the module never loads a model and tests can pass their own config. It calls `load_backend` first, so a missing CONCH token stops the server before it serves anything.
+- One background thread per job with an in-memory store (no queue library): enough for a demo, and the TestClient sees real polling. Jobs are lost on restart; the 404 message says so.
+- The file type is checked against the user's filename before anything is written (400 names their file); the body is streamed to disk in 1 MB chunks and stops with 413 once it passes `max_upload_mb`; then `open_slide` decodes it, so a corrupt file is a 400 right away.
+- Each job records every (step, progress) it reaches in `Job.history`; `advance` ignores any move backwards, and the test checks both the history and what polling saw.
+- display.png and heatmap.png are kept as PNG bytes in memory; the upload file is deleted when the job ends (closed first, since Windows can't delete an open file).
+- Unexpected worker errors show "Analysis failed (<type>). Try another image." and log the traceback server-side, so internals don't reach the browser.
+- `make dev` starts uvicorn on :8000 in the background and `next dev` in the foreground; `trap 'kill 0' EXIT` stops both on Ctrl-C.
+- Live check (uvicorn on Windows, synthetic 2048×1536 fixture): job done, 28 tiles, 1 region with a note, display.png served, upload deleted. The fixture only fits one 4×4 region; Phase 7's fixture must be bigger (brief §5, Phase 7).
+- Note grammar fixed for exactly one region ("1 region is ... so 1 is shown").

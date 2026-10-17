@@ -113,8 +113,9 @@ def _note(found, n_windows, cfg):
     if found == 0:
         return (f"No {n}×{n}-tile region is at least {pct(cfg['min_coverage'])} on tissue, "
                 "so no regions could be suggested.")
-    return (f"Only {found} non-overlapping {n}×{n}-tile regions are at least {pct(cfg['min_coverage'])} "
-            f"on tissue, so {found} are shown instead of {top_k}.")
+    regions, are = ("region", "is") if found == 1 else ("regions", "are")
+    return (f"Only {found} non-overlapping {n}×{n}-tile {regions} {are} at least {pct(cfg['min_coverage'])} "
+            f"on tissue, so {found} {are} shown instead of {top_k}.")
 
 
 def rank_regions(probs, tissue, cfg, tile_size, scale):

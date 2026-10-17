@@ -16,7 +16,7 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 |---|---|
 | `make setup` | Python venv (`.venv`) and frontend packages |
 | `make setup-real` | Adds torch and CONCH, for the real model |
-| `make dev` | Starts the app at http://localhost:3000 (Next.js; FastAPI joins in Phase 4) |
+| `make dev` | Starts the app at http://localhost:3000 (Next.js, with FastAPI on :8000) |
 | `make test` | All fast tests: no GPU, internet or token needed (uses the demo model) |
 | `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`) |
 
