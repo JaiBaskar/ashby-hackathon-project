@@ -34,6 +34,6 @@ test-e2e:
 test-real:
 	$(PY) -m pytest backend -m realmodel -v
 
-# Postgres store tests in a throwaway schema (dropped afterwards). Needs TEST_DATABASE_URL.
+# Postgres store tests in a throwaway schema (dropped afterwards). Needs TEST_DATABASE_URL (loaded from .env).
 test-db:
-	$(PY) -m pytest backend -m db -v
+	set -a; if [ -f .env ]; then . ./.env; fi; set +a; $(PY) -m pytest backend -m db -v
