@@ -1,0 +1,7 @@
+numpy==2.5.4
+pillow==13.0.0
+PyYAML==6.0.3
+openslide-python==1.4.6
+openslide-bin==4.0.1.2
+pytest==9.1.1
+tifffile==2026.10.15

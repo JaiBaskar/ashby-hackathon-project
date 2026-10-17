@@ -1,0 +1,63 @@
+# All paths, seeds and thresholds for the app (AGENTS.md §3). Paths are relative to the repo root.
+
+# fake | conch. conch needs a Hugging Face token (HF_TOKEN or `hf auth login`) from an account
+# that accepted the CONCH license. The server never falls back to fake on its own.
+model: fake
+seed: 1234
+
+# Zero-shot tissue classes, in output column order. Each class's score uses the mean of its prompts.
+classes: [tumor, stroma, immune, necrosis, normal, fat_other]
+prompt_set: v1
+prompts:
+  tumor:
+    - an H&E image of tumor
+    - an H&E image of adenocarcinoma
+    - an H&E image of carcinoma
+    - an H&E image of malignant epithelium
+  stroma:
+    - an H&E image of stroma
+    - an H&E image of fibrous connective tissue
+    - an H&E image of smooth muscle
+  immune:
+    - an H&E image of lymphocytes
+    - an H&E image of immune cells
+    - an H&E image of an inflammatory infiltrate
+  necrosis:
+    - an H&E image of necrosis
+    - an H&E image of necrotic debris
+  normal:
+    - an H&E image of normal tissue
+    - an H&E image of normal mucosa
+    - an H&E image of benign glands
+  fat_other:
+    - an H&E image of adipose tissue
+    - an H&E image of mucus
+    - an H&E image of background
+
+# Ingest and tiling
+tile_px: 256                 # tile edge in pixels at target_mpp (AGENTS.md §4, rules.md §7)
+target_mpp: 0.5              # µm per pixel the model sees (about 20x)
+default_mpp: 0.5             # assumed µm/px for photos when the user gives no scale
+max_display_px: 2048         # longest side of the image the browser shows
+max_upload_mb: 500
+max_tiles: 2000              # analyzed tiles per image; above this, tiles are sampled evenly
+tissue_min_saturation: 0.07  # a pixel counts as tissue at or above this HSV saturation
+tissue_threshold: 0.5        # a tile is analyzed when at least this fraction is tissue
+batch_size: 32
+
+# Regions and reasons
+region_tiles: 4              # a region is region_tiles x region_tiles tiles
+min_coverage: 0.9
+top_k: 5
+weights:
+  necrosis: 1.0
+  variation: 0.5
+reason_cutoffs:
+  low_necrosis: 0.05
+  low_variation: 0.08
+  full_coverage: 0.95
+
+paths:
+  uploads: data/uploads
+  results: results
+  crc_val_dir: data/CRC-VAL-HE-7K   # CRC-VAL-HE-7K tiles, one folder per class (scripts/get_crc_val.sh)

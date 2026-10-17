@@ -1,0 +1,14 @@
+[project]
+name = "project"
+version = "0.1.0"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+addopts = "--strict-markers"
+markers = [
+    "realmodel: needs real CONCH weights and a Hugging Face token (make test-real)",
+    "gpu: needs CONCH on a GPU (AGENTS.md section 7)",
+    "delta: needs real data on Delta (AGENTS.md section 7)",
+]
