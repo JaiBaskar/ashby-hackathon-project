@@ -23,3 +23,16 @@ One line each: decision + reason.
 - The tile grid starts at (0, 0) and drops the partial right and bottom edge, so every tile is fully inside the image.
 - Transparent pixels (PNG alpha, outside an OpenSlide region) are composited onto white so they read as glass; phone photos are EXIF-rotated.
 - An image smaller than one tile at its scale is an `IngestError` with a message about the scale, not "No tissue found".
+
+## Phase 2
+- "Token present" = `HF_TOKEN` in the environment, else the token cached by `hf auth login` (`huggingface_hub.get_token()`), so Delta users who logged in don't have to export the token.
+- CONCH is pinned to commit 141cc09 and loaded exactly as in its source: `create_model_from_pretrained("conch_ViT-B-16", "hf_hub:MahmoodLab/CONCH", device=…, hf_auth_token=…)`, `.eval()`, `torch.no_grad()`, `encode_image(proj_contrast=True, normalize=True)`.
+- `transformers` pinned to 4.57.6: a smoke test with randomly initialized CONCH showed its tokenizer crashes on transformers 5 (`batch_encode_plus` was removed). This also applies to Delta installs.
+- Zero-shot scores: each class's embedding is the mean of its normalized prompt embeddings, renormalized; probabilities are the softmax of `logit_scale` × cosine similarity.
+- `FakeBackend` scores mean tile color with fixed formulas (purple → tumor, pink → stroma, white → fat/other); deterministic and demo-only.
+- A failed CONCH load is a `ModelConfigError` that names the cause, with the token blanked out if it ever appears; there's never a fallback to the fake model.
+- `max_tiles` cap keeps evenly spaced tiles from the row-major tissue list; the full tissue grid stays intact for region coverage, and `TileGrid.capped` / `n_tissue_tiles` record the cut.
+- AUROC is rank-based (Mann-Whitney) with ties counted half, in NumPy, so there's no scikit-learn dependency.
+- The real-model AUROC result goes to `results/conch_auroc_<prompt_set>.json`, so a one-time prompt change keeps both results.
+- When the token is missing, the realmodel tests fail with a clear message instead of skipping; only missing CRC data skips (the brief's rule).
+- CRC-VAL-HE-7K: `scripts/get_crc_val.sh` shows the size (~800 MB) and asks before downloading; not run yet, since realmodel tests run in Phase 7.

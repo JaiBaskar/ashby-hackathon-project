@@ -4,7 +4,9 @@ from PIL import Image
 
 from project.config import load_config
 from project.ingest import IngestError, open_slide
-from project.tiling import NO_TISSUE, NoTissueError, build_grid, make_display, read_tiles, tissue_fraction, to_original
+from project.tiling import (
+    NO_TISSUE, NoTissueError, Tile, build_grid, cap_tiles, make_display, read_tiles, tissue_fraction, to_original,
+)
 from tests.synthetic import GLASS, PINK, PURPLE, he_slide, save_tiled_tiff, solid
 
 
@@ -167,3 +169,33 @@ def test_scan_display_respects_max_display_px(tmp_path, cfg):
     slide = open_cfg(write(he_slide(2400, 1000), tmp_path / "scan.svs"), cfg)
     display, scale = make_display(slide, 800)
     assert display.size == (800, round(1000 / 3)) and scale == pytest.approx(3.0)
+
+
+# Tile cap (Phase 2)
+
+def make_tiles(rows, cols, size=256):
+    return [Tile(r, c, c * size, r * size, size, 1.0) for r in range(rows) for c in range(cols)]
+
+
+def test_tile_cap_keeps_exactly_max_tiles_spread_evenly():
+    tiles = make_tiles(10, 10)
+    kept, capped = cap_tiles(tiles, 10)
+    assert capped is True and len(kept) == 10
+    assert len({(t.row, t.col) for t in kept}) == 10
+    assert min(t.row for t in kept) == 0 and max(t.row for t in kept) == 9  # covers the whole tissue
+    gaps = np.diff([tiles.index(t) for t in kept])
+    assert gaps.max() - gaps.min() <= 1  # evenly spaced
+
+
+def test_tile_cap_not_hit_keeps_everything():
+    tiles = make_tiles(2, 3)
+    kept, capped = cap_tiles(tiles, 10)
+    assert kept == tiles and capped is False
+
+
+def test_build_grid_records_when_the_cap_is_hit(tmp_path, cfg):
+    path = write(solid(PINK, size=(1024, 1024)), tmp_path / "pink.png")  # 4 x 4 tissue tiles
+    grid = build_grid(open_cfg(path, cfg), {**cfg, "max_tiles": 5})
+    assert len(grid.tiles) == 5 and grid.capped is True and grid.n_tissue_tiles == 16
+    grid = build_grid(open_cfg(path, cfg), cfg)
+    assert len(grid.tiles) == 16 and grid.capped is False and grid.n_tissue_tiles == 16

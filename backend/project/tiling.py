@@ -31,6 +31,8 @@ class TileGrid:
     tiles: list                 # tiles to analyze, row-major
     display: Image.Image        # downsampled image the browser shows
     scale: float                # original pixels per display pixel
+    n_tissue_tiles: int         # tissue tiles before the max_tiles cap
+    capped: bool                # True when max_tiles cut the list
 
 
 def tissue_mask(rgb, min_saturation):
@@ -84,7 +86,16 @@ def build_grid(slide, cfg):
     ]
     if not tiles:
         raise NoTissueError(NO_TISSUE)
-    return TileGrid(tile_size, tissue, tiles, display, scale)
+    kept, capped = cap_tiles(tiles, cfg["max_tiles"])
+    return TileGrid(tile_size, tissue, kept, display, scale, len(tiles), capped)
+
+
+def cap_tiles(tiles, max_tiles):
+    """Keep at most max_tiles, evenly spaced through the row-major list so they span the whole tissue."""
+    if len(tiles) <= max_tiles:
+        return tiles, False
+    picks = np.linspace(0, len(tiles) - 1, max_tiles).round().astype(int)
+    return [tiles[i] for i in picks], True
 
 
 def read_tiles(slide, tiles, tile_px):
