@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import type { Result } from '@/lib/api'
 import { pct } from '@/lib/format'
-import FreeBox, { fromCorners, useDrag, type Rect } from './FreeBox'
+import FreeBox, { dragRect, fromCorners, HANDLE_POS, HANDLES, useDrag, type Handle, type Rect } from './FreeBox'
 
 const MIN_DRAW_PX = 4 // rendered px: a smaller drag is a click, not a box
 
@@ -42,6 +42,7 @@ interface Props {
   freeRef: Ref<HTMLDivElement>
   drawing: boolean
   onDrawn: (rect: Rect | null) => void
+  onSketch: (rect: Rect) => void
   onFreeSelect: () => void
   onFreeChange: (rect: Rect, when: 'drag' | 'now' | 'soon') => void
 }
@@ -50,15 +51,22 @@ export default function SlideViewer(props: Props) {
   const { result, selected, onSelect, showHeatmap, free, drawing, onDrawn } = props
   const { image } = result
   const { ref, scale, measure } = useScale(image.width)
-  const [sketch, setSketch] = useState<Rect | null>(null)
 
   // Drawing: the press point is one corner and the pointer is the other, in display px.
   const drag = useDrag<[number, number]>(scale, ([ax, ay], dx, dy, done) => {
     const rect = fromCorners(ax, ay, ax + dx, ay + dy, image.width, image.height)
-    if (!done) return setSketch(rect)
-    setSketch(null)
-    onDrawn(rect.w * scale >= MIN_DRAW_PX && rect.h * scale >= MIN_DRAW_PX ? rect : null)
+    const big = rect.w * scale >= MIN_DRAW_PX && rect.h * scale >= MIN_DRAW_PX
+    if (!done) {
+      if (big) props.onSketch(rect)
+      return
+    }
+    onDrawn(big ? rect : null)
   })
+  // The selected suggestion's handles: grabbing one turns that region into your box and keeps resizing it.
+  const resize = useDrag<{ handle: Handle; start: Rect }>(scale, ({ handle, start }, dx, dy, done) =>
+    props.onFreeChange(dragRect(start, handle, dx, dy, image.width, image.height), done ? 'now' : 'drag'),
+  )
+
   const startDraw = (e: React.PointerEvent) => {
     const box = ref.current!.getBoundingClientRect()
     drag([(e.clientX - box.left) / scale, (e.clientY - box.top) / scale], e)
@@ -112,6 +120,17 @@ export default function SlideViewer(props: Props) {
                 <span className="rounded-r-sm bg-box-outline px-1.5 py-0.5 text-xs font-semibold text-box-other">Best</span>
               )}
             </span>
+            {isSelected &&
+              HANDLES.map((h) => (
+                <span
+                  key={h}
+                  aria-hidden
+                  data-testid={`handle-${h}`}
+                  onPointerDown={(e) => resize({ handle: h, start: { x: r.x, y: r.y, w: r.w, h: r.h } }, e)}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`free-box-handle absolute size-3 touch-none rounded-[2px] ${HANDLE_POS[h]}`}
+                />
+              ))}
           </button>
         )
       })}
@@ -128,14 +147,7 @@ export default function SlideViewer(props: Props) {
         />
       )}
       {drawing && (
-        <div data-testid="draw-surface" aria-hidden onPointerDown={startDraw} className="absolute inset-0 z-30 cursor-crosshair touch-none">
-          {sketch && (
-            <div
-              className="free-box absolute rounded-sm"
-              style={{ left: `${sketch.x * scale}px`, top: `${sketch.y * scale}px`, width: `${sketch.w * scale}px`, height: `${sketch.h * scale}px` }}
-            />
-          )}
-        </div>
+        <div data-testid="draw-surface" aria-hidden onPointerDown={startDraw} className="absolute inset-0 z-30 cursor-crosshair touch-none" />
       )}
     </div>
   )

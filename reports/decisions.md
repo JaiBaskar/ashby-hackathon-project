@@ -194,3 +194,10 @@ One line each: decision + reason.
 - main's box-size tests stubbed `FakeBackend.predict(self, tiles)`; the pipeline now passes `organ=`, so the stubs accept and forward it. main's prompt-set tests skip a set's `organs` key when comparing it with the class list.
 - `Result.organ` is optional (null for jobs recorded in the history store before the organ picker); the results screen shows "Organ: …" only when it's set. `cancer_type` (main) is separate: a future predicted type, still null.
 - For e2e specs, Playwright config and screenshots, both branches had added their own copies; main's newer versions were kept.
+
+## Resize any box, scored live
+- The selected suggestion shows the same 8 handles as your own box. Grabbing one turns that region into your box and keeps resizing it in the same drag; the suggestion stays drawn for comparison. No "Adjust" step is needed (the button stays as a keyboard-friendly route).
+- A box can be dragged out to the whole image or down to 2 display px; it's clamped to the image.
+- The box is re-scored while it's being dragged, not only on release: every pointer move asks the measure endpoint, with at most one request out at a time and only the newest box waiting behind it, so the numbers keep up without a request per pixel. Drawing a new box is scored the same way. Arrow keys still wait 300 ms after the last key.
+- All scoring stays in Python (the measure endpoint); the frontend holds no ML, as the README says.
+- The 0.5 / 1 / 2 mm picker is unchanged: it re-ranks the five suggestions at a punch size, which is a different job from reshaping one box.
