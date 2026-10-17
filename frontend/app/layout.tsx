@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
+import Link from 'next/link'
 import './globals.css'
 
 // Fonts ship with the @fontsource packages, so builds and tests need no internet (DESIGN.md, "Type").
@@ -24,14 +25,24 @@ const plex = localFont({
 })
 
 export const metadata: Metadata = {
-  title: 'project',
+  title: 'Sampling-site finder',
   description: 'Suggests the best regions to sample on an H&E biopsy slide. Research prototype.',
 }
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={`${newsreader.variable} ${plex.variable}`}>
-      <body>{children}</body>
+      <body className="min-h-dvh">
+        <header className="border-b border-line">
+          <div className="mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6">
+            <Link href="/" className="flex items-center gap-2.5 rounded-sm font-display text-lg font-medium text-ink">
+              <span aria-hidden className="size-3 rounded-full border-2 border-accent-strong" />
+              Sampling-site finder
+            </Link>
+          </div>
+        </header>
+        {children}
+      </body>
     </html>
   )
 }

@@ -82,3 +82,16 @@ One line each: decision + reason.
 - Dark mode follows `prefers-color-scheme` by redefining the chrome tokens on `:root`; components need no `dark:` variants. A manual theme toggle isn't in the brief.
 - The token test also fails on any hex color in `app/` or `components/` outside `globals.css`, to keep "tokens only" enforced in Phase 6.
 - Contrast math lives in `frontend/lib/contrast.ts` (WCAG 2.x), with hand-computed checks: 21:1 black on white, pink L = 0.5397, 3.13 and 2.95 on purple.
+
+## Phase 6
+- `/jobs/[id]` is a Server Component that fetches the job from FastAPI (`API_URL`) once, so a reload of a results URL renders straight away and an unknown id hits `notFound()` → `not-found.tsx`. A Client Component (`JobView`) then polls `/api/jobs/{id}` every second until done or error.
+- Polling stops on done/error, turns a 404 (job lost on restart) into the error screen, and gives up after 5 network failures in a row with a readable message, so the screen never spins forever.
+- Boxes are positioned in px from a measured scale (rendered image width ÷ display width), re-measured on image load, window resize and ResizeObserver. Testable in jsdom by stubbing `getBoundingClientRect`, which percentage positioning wouldn't be.
+- The best region is selected when results open, so the detail panel is never empty; boxes are `<button aria-pressed>`, so Enter and Space work natively.
+- `max_upload_mb` and `default_mpp` reach the browser through `next.config.ts` `env`, read from `config.yaml` by `frontend/app-settings.ts`; `vitest.config.mts` uses the same function, so tests check the real config values.
+- Browsers can't display TIFF/SVS: the upload screen shows a "no preview" card with the file name for those, and an image preview for PNG/JPEG.
+- `app/icon.svg` added: without it the browser's automatic `/favicon.ico` request 404s and logs a console error, which Phase 7 forbids.
+- `app/error.tsx` covers the API being down when a job page loads (the server-side fetch throws).
+- `@testing-library/user-event` 14.6.1 added for keyboard and upload interactions.
+- Live check (FastAPI fake model + `next dev`, synthetic 3400×2400 image uploaded through the `/api` rewrite): results, box selection, heatmap toggle and the not-found page work; no horizontal scroll at 375 px on any screen; layout checked at 375 px and 1440 px in light and dark. That image fits only 2 regions; the Phase 7 fixture must fit 5.
+- Not changed, flagged for Phase 7: the backend heatmap tint `HEATMAP_RGB` (214, 40, 110) is close to eosin pink, so the overlay reads weakly on pink tissue.

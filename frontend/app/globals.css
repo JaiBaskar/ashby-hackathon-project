@@ -72,6 +72,15 @@
   --ease-emphasized: cubic-bezier(0.3, 0, 0, 1.1);
   --default-transition-duration: 200ms;
   --default-transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+
+  /* Screen changes: a short fade and rise (animate-enter). */
+  --animate-enter: enter var(--transition-duration-slow) var(--ease-standard) both;
+  @keyframes enter {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
 }
 
 /* next/font sets --font-newsreader and --font-plex on <html> (app/layout.tsx). */

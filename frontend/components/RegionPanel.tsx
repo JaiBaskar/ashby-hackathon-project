@@ -1,0 +1,83 @@
+import { CLASSES, type Region, type Result } from '@/lib/api'
+import { CLASS_LABELS, pct } from '@/lib/format'
+
+// Token-backed swatch classes per tissue class (DESIGN.md, "Tissue classes").
+const SWATCH: Record<(typeof CLASSES)[number], string> = {
+  tumor: 'bg-class-tumor',
+  stroma: 'bg-class-stroma',
+  immune: 'bg-class-immune',
+  necrosis: 'bg-class-necrosis',
+  normal: 'bg-class-normal',
+  fat_other: 'bg-class-fat-other',
+}
+
+export default function RegionPanel({ region, result }: { region: Region; result: Result }) {
+  const estimated = result.image.mpp_estimated
+  return (
+    <section
+      aria-label="Region details"
+      key={region.rank}
+      className="animate-enter rounded-lg border border-line bg-surface p-5 shadow-overlay sm:p-6"
+    >
+      <div className="flex items-baseline justify-between gap-4">
+        <h2 className="flex items-center gap-2 font-display text-xl font-normal">
+          Region {region.rank}
+          {region.is_best && (
+            <span className="rounded-sm bg-accent px-1.5 py-0.5 font-sans text-xs font-semibold text-accent-ink">Best</span>
+          )}
+        </h2>
+        <p className="text-right text-sm text-ink-muted">
+          Score <span className="font-display text-lg text-ink tabular-nums">{region.score.toFixed(2)}</span>
+        </p>
+      </div>
+
+      <h3 className="mt-6 text-sm font-semibold">Cell composition</h3>
+      <div aria-hidden className="mt-2 flex h-3 overflow-hidden rounded-full bg-surface-sunken">
+        {CLASSES.map((c) => (
+          <div key={c} className={SWATCH[c]} style={{ width: `${region.composition[c] * 100}%` }} />
+        ))}
+      </div>
+      <ul aria-label="Cell composition" className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+        {CLASSES.map((c) => (
+          <li key={c} className="flex items-center gap-2">
+            <span aria-hidden className={`size-2.5 shrink-0 rounded-sm ${SWATCH[c]}`} />
+            <span className="flex-1 text-ink-muted">{CLASS_LABELS[c]}</span>
+            <span className="tabular-nums">{pct(region.composition[c])}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-ink-muted">Estimated from tile classification, not individual cell counts</p>
+
+      <h3 className="mt-6 text-sm font-semibold">Why this region</h3>
+      <ul className="mt-2 space-y-1.5">
+        {region.reasons.map((reason) => (
+          <li key={reason} className="relative pl-4 before:absolute before:top-2.5 before:left-0 before:size-1.5 before:rounded-full before:bg-accent-strong">
+            {reason}
+          </li>
+        ))}
+      </ul>
+
+      <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm">
+        <div className="col-span-2">
+          <dt className="text-ink-muted">Tumor content</dt>
+          <dd data-testid="tumor-vs-slide" className="mt-0.5 font-semibold tabular-nums">
+            {pct(region.composition.tumor)} here vs. {pct(result.slide_composition.tumor)} across the slide
+          </dd>
+        </div>
+        <div>
+          <dt className="text-ink-muted">Size</dt>
+          <dd data-testid="size" className="mt-0.5 font-semibold tabular-nums">
+            {region.size_um == null ? 'Unknown' : `${Math.round(region.size_um)} µm square`}
+            {region.size_um != null && estimated && <span className="block font-normal text-ink-muted">estimated scale</span>}
+          </dd>
+        </div>
+        <div>
+          <dt className="text-ink-muted">Tissue coverage</dt>
+          <dd data-testid="coverage" className="mt-0.5 font-semibold tabular-nums">
+            {pct(region.tissue_coverage)}
+          </dd>
+        </div>
+      </dl>
+    </section>
+  )
+}
