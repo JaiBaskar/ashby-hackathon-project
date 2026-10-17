@@ -39,6 +39,22 @@ export interface JobStatus {
   model: string
   result?: Result | null
   error?: string | null
+  created_at?: string | null
+  cancer_type?: string | null // most likely cancer type; null until a classifier exists
+}
+
+// GET /api/jobs: every analysis request, newest first. store is 'memory' when no database is configured.
+export interface JobSummary {
+  id: string
+  created_at: string
+  status: 'running' | 'done' | 'error'
+  model: string
+  cancer_type: string | null
+}
+
+export interface JobList {
+  store: 'postgres' | 'memory'
+  jobs: JobSummary[]
 }
 
 // FastAPI errors come back as { detail: "..." }. Fall back to a plain sentence, never a raw object.

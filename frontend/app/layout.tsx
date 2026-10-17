@@ -39,6 +39,11 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <span aria-hidden className="size-3 rounded-full border-2 border-accent-strong" />
               Sampling-site finder
             </Link>
+            <nav className="ml-auto">
+              <Link href="/history" className="inline-flex min-h-11 items-center rounded-sm px-2 font-medium text-ink-muted hover:text-ink">
+                History
+              </Link>
+            </nav>
           </div>
         </header>
         {children}

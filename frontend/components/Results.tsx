@@ -4,10 +4,19 @@ import Link from 'next/link'
 import { useState } from 'react'
 import type { Result } from '@/lib/api'
 import RegionPanel from './RegionPanel'
+import RequestMeta from './RequestMeta'
 import SlideViewer from './SlideViewer'
 import { button, DemoBadge, ResearchNotice } from './ui'
 
-export default function Results({ result }: { result: Result }) {
+export default function Results({
+  result,
+  meta,
+  timeZone,
+}: {
+  result: Result
+  meta?: { created_at?: string | null; cancer_type?: string | null }
+  timeZone?: string
+}) {
   const [selected, setSelected] = useState(result.regions[0]?.rank ?? 0)
   const [showHeatmap, setShowHeatmap] = useState(false)
   const region = result.regions.find((r) => r.rank === selected)
@@ -52,6 +61,12 @@ export default function Results({ result }: { result: Result }) {
           </Link>
         </div>
       </div>
+
+      {meta?.created_at && (
+        <div className="mt-4">
+          <RequestMeta createdAt={meta.created_at} cancerType={meta.cancer_type} timeZone={timeZone} />
+        </div>
+      )}
 
       {result.note && (
         <p className="mt-6 rounded-md border border-line bg-surface px-4 py-3 text-ink">

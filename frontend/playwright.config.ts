@@ -24,6 +24,8 @@ export default defineConfig({
   webServer: [
     {
       command: `${PYTHON} -m uvicorn --factory --app-dir ../backend project.api:create_app --host 127.0.0.1 --port ${API_PORT}`,
+      // Never write test runs into a real history database, even if the shell has DATABASE_URL set.
+      env: { DATABASE_URL: '' },
       url: `${API_URL}/docs`,
       reuseExistingServer: false,
       timeout: 60_000,

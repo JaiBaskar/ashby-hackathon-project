@@ -49,6 +49,25 @@ test('full flow: upload a slide, see 5 regions, open region 3', async ({ page, r
   expect(b.width).toBeCloseTo(region3.w * scale, 0)
 })
 
+test('history: a finished analysis gets a card that opens its results', async ({ page }) => {
+  const id = await uploadFromHome(page, fixture('slide'))
+  await expect(page.getByRole('heading', { name: 'Suggested sampling sites' })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByText('Cancer type')).toBeVisible()
+
+  await page.getByRole('navigation').getByRole('link', { name: 'History' }).click()
+  await expect(page).toHaveURL(/\/history$/)
+  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
+  const card = page.getByRole('link', { name: /Analysis/ }).first() // newest first
+  await expect(card).toHaveAttribute('href', `/jobs/${id}`)
+  await expect(card).toContainText('Not identified yet')
+  await expect(card).toContainText('Done')
+  await expect(card.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/)
+
+  await card.click()
+  await expect(page).toHaveURL(new RegExp(`/jobs/${id}$`))
+  await expect(regionBoxes(page)).toHaveCount(5)
+})
+
 test('error flow: a blank image ends in the error state, and "Try another image" returns to upload', async ({ page }) => {
   await uploadFromHome(page, fixture('blank'))
   await expect(page.getByText('No tissue found in this image.')).toHaveAttribute('role', 'alert', { timeout: 30_000 })
@@ -82,6 +101,9 @@ test.describe('at 375 px', () => {
     await page.getByRole('link', { name: 'New analysis' }).click()
     await expect(page).toHaveURL(/\/upload$/)
     await page.locator('input[type="file"]').setInputFiles(fixture('slide'))
+    await noHorizontalScroll()
+    await page.goto('/history')
+    await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
     await noHorizontalScroll()
   })
 })

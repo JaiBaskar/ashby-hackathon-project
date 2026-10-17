@@ -31,3 +31,13 @@ export const settings = {
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB),
   defaultMpp: Number(process.env.DEFAULT_MPP),
 }
+
+// "Oct 17, 2026, 2:05 PM" in the viewer's time zone (or a fixed one, for tests).
+export function formatCreated(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
+}
+
+export function cancerTypeLabel(type: string | null | undefined): string {
+  if (!type) return 'Not identified yet'
+  return type.charAt(0).toUpperCase() + type.slice(1).replaceAll('_', ' ')
+}
