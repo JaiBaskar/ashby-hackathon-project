@@ -11,7 +11,7 @@ export interface Rect {
 }
 
 export type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
-const HANDLES: Exclude<Handle, 'move'>[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
+export const HANDLES: Exclude<Handle, 'move'>[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 const MIN_PX = 2 // display px: a side never collapses to nothing while resizing
 export const KEY_STEP = 16 // display px per arrow key press
 
@@ -73,7 +73,7 @@ export function useDrag<K>(scale: number, onDrag: (key: K, dx: number, dy: numbe
   }
 }
 
-const HANDLE_POS: Record<Exclude<Handle, 'move'>, string> = {
+export const HANDLE_POS: Record<Exclude<Handle, 'move'>, string> = {
   nw: '-top-1.5 -left-1.5 cursor-nwse-resize',
   n: '-top-1.5 left-1/2 -translate-x-1/2 cursor-ns-resize',
   ne: '-top-1.5 -right-1.5 cursor-nesw-resize',

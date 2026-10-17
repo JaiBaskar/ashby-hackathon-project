@@ -73,6 +73,10 @@ export default function Results({
   const focusFree = useRef(false)
   const latestRequest = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Live scoring: at most one request out at a time; while it's out, only the newest box waits to go next.
+  const inFlight = useRef(false)
+  const pending = useRef<Rect | null>(null)
+  const drewNew = useRef(false) // this drawing gesture has already put a box on the slide
 
   useEffect(() => () => clearTimeout(timer.current), [])
   useEffect(() => {
@@ -87,7 +91,6 @@ export default function Results({
   }, [drawing])
 
   async function measureNow(rect: Rect) {
-    clearTimeout(timer.current)
     const id = ++latestRequest.current
     setMeasuring(true)
     const round = (v: number) => String(Number(v.toFixed(1)))
@@ -108,14 +111,38 @@ export default function Results({
     }
   }
 
+  async function pump() {
+    while (pending.current && !inFlight.current) {
+      const rect = pending.current
+      pending.current = null
+      inFlight.current = true
+      try {
+        await measureNow(rect)
+      } finally {
+        inFlight.current = false
+      }
+    }
+  }
+
+  function measureLive(rect: Rect) {
+    pending.current = rect
+    pump()
+  }
+
+  // Every change re-scores the box: pointer moves and releases right away (throttled to one request at a
+  // time), arrow keys once they stop for 300 ms.
   function changeFree(rect: Rect, when: 'drag' | 'now' | 'soon') {
+    if (selected !== 'free') {
+      // a new box (drawn, or grabbed from a suggestion): don't show the previous box's numbers
+      latestRequest.current++
+      setMeasured(null)
+      setMeasureError(null)
+    }
     setFree(rect)
     setSelected('free')
-    if (when === 'now') measureNow(rect)
-    if (when === 'soon') {
-      clearTimeout(timer.current)
-      timer.current = setTimeout(() => measureNow(rect), 300)
-    }
+    clearTimeout(timer.current)
+    if (when === 'soon') timer.current = setTimeout(() => measureLive(rect), 300)
+    else measureLive(rect)
   }
 
   function placeFree(rect: Rect, focus = false) {
@@ -128,6 +155,7 @@ export default function Results({
 
   function removeFree() {
     clearTimeout(timer.current)
+    pending.current = null
     latestRequest.current++
     setFree(null)
     setMeasured(null)
@@ -140,6 +168,7 @@ export default function Results({
   // region in the middle of the image and focus it, so the arrow keys take over.
   function drawButton(e: React.MouseEvent) {
     if (drawing) return setDrawing(false)
+    drewNew.current = false
     if (e.detail !== 0) return setDrawing(true)
     const { width, height } = result.image
     const w = result.regions[0]?.w ?? width / 4
@@ -244,14 +273,22 @@ export default function Results({
             freeLabel={`Your box${measured ? `: ${pct(measured.composition.tumor)} tumor` : ''}`}
             freeRef={freeRef}
             drawing={drawing}
-            onDrawn={(rect) => rect && placeFree(rect)}
+            onDrawn={(rect) => {
+              if (!rect) return free && drewNew.current && removeFree()
+              setDrawing(false)
+              changeFree(rect, 'now')
+            }}
+            onSketch={(rect) => {
+              drewNew.current = true
+              changeFree(rect, 'drag')
+            }}
             onFreeSelect={() => setSelected('free')}
             onFreeChange={changeFree}
           />
           <p className="mt-2 text-sm text-ink-muted">
             {drawing
               ? 'Drag across the slide to draw your box. Press Escape to cancel.'
-              : 'Select a numbered box to see why it was chosen, or draw your own.'}
+              : 'Select a numbered box to see why it was chosen. Drag its corners or edges to resize it, or draw your own.'}
           </p>
         </div>
         <div className="lg:sticky lg:top-6">

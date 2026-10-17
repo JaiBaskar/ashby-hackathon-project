@@ -139,6 +139,38 @@ test('free box: draw any rectangle, resize it by a corner, and its numbers come 
   await expect(box).toHaveCount(0)
 })
 
+test('grab the best box by its corner: it resizes freely and its numbers update before you let go', async ({ page, request }) => {
+  const id = await uploadFromHome(page, fixture('slide'))
+  await expect(regionBoxes(page)).toHaveCount(5, { timeout: 30_000 })
+  const best = page.getByRole('button', { name: /^Region 1/ })
+  const corner = (await best.getByTestId('handle-se').boundingBox())!
+  const start = { x: corner.x + corner.width / 2, y: corner.y + corner.height / 2 }
+
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down()
+  await page.mouse.move(start.x + 150, start.y + 90, { steps: 8 })
+
+  // Still holding the corner: the box is yours, and the panel already shows numbers for its current shape.
+  const box = page.getByRole('group', { name: /^Your box/ })
+  const panel = page.getByRole('region', { name: 'Region details' })
+  await expect(panel.getByRole('heading', { name: 'Your box' })).toBeVisible()
+  await expect(panel.getByTestId('size')).toBeVisible()
+  const held = (await box.boundingBox())!
+  const img = (await page.getByRole('img', { name: /uploaded slide/ }).boundingBox())!
+  const width = (await (await request.get(`/api/jobs/${id}`)).json()).result.image.width
+  const scale = img.width / width
+  const q = new URLSearchParams({
+    x: String((held.x - img.x) / scale),
+    y: String((held.y - img.y) / scale),
+    w: String(held.width / scale),
+    h: String(held.height / scale),
+  })
+  const measured = await (await request.get(`/api/jobs/${id}/measure?${q}`)).json()
+  await expect(panel.getByTestId('size')).toContainText(`${Math.round(measured.width_um)} × ${Math.round(measured.height_um)} µm`)
+  await page.mouse.up()
+  await expect(best).toBeVisible() // the suggestion stays, for comparison
+})
+
 test('error flow: a blank image ends in the error state, and "Try another image" returns to upload', async ({ page }) => {
   await uploadFromHome(page, fixture('blank'))
   await expect(page.getByText('No tissue found in this image.')).toHaveAttribute('role', 'alert', { timeout: 30_000 })
