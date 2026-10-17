@@ -108,3 +108,19 @@ One line each: decision + reason.
 - Heatmap tint changed from magenta `(214, 40, 110)` to amber `(255, 196, 0)`, as flagged in Phase 6: the old hue was 1° from eosin pink, so the overlay vanished on tissue. A new test requires ≥ 60° of hue from both stains (amber: 70° from pink).
 - `make test` now runs Playwright too (`make test-e2e`); `make setup` installs Chromium. `PYTHON` overrides the venv path (e.g. Windows).
 - `make test-real` didn't run: this Mac has no torch or CONCH in `.venv`, no `HF_TOKEN` or cached token, no CONCH weights and no CRC-VAL-HE-7K. Installing them means > 1 GB downloads, which need human approval (CLAUDE.md), and a CONCH-licensed account. `scripts/test_real.sbatch` is ready for Delta but wasn't submitted.
+
+## Phase 8 (TCGA validation): code
+- Project TCGA-LUAD, frozen slides (TS/BS) only: a schema-only probe of the GDC showed `percent_tumor_cells` is recorded on TS/BS slides and essentially never on DX slides (BRCA 1 of 1,133; LUAD 0 of 541), so the comparison uses the slides the pathologist actually read (AGENTS.md §4). LUAD has 718 such slides with an ABSOLUTE call, ~125 MB median each.
+- ABSOLUTE: PanCanAtlas `TCGA_mastercalls.abs_tables_JSedit.fixed.txt` (GDC data id 4f277128-…). Only `call status == called`; sample_id = first 16 chars of the aliquot barcode in `sample` (9,991 of 10,786 rows match the §4 regex; the rest are non-TCGA-format names). A sample with two calls is dropped as ambiguous (none in the current file). Fraction → percent happens only in `labels.read_absolute`.
+- slide_id = GDC file stem (`<slide barcode>.<uuid>`), unique by construction; the pathologist % is taken from the slide record whose barcode matches that file.
+- Samples with several slides keep one row per slide (AGENTS.md §4); the labels step prints how many have differing percentages (173 samples in LUAD) instead of listing them.
+- Splits: hospitals shuffled with the config seed, filling test (30%), then cal (10%), then train. LUAD result: test 261 slides / 17 hospitals, train 378 / 15, cal 79 / 1 (one large site). `check_labels` enforces every §8 Phase 1 rule and passed on the real table.
+- Downloads are capped per split (`max_slides`: train 100, test 150, cal 0; seeded sample): ~65 GB in total, under the ~200 GB ask-first line. Cal isn't scored, since conformal intervals aren't part of this step.
+- The app's raw tumor % is a mean softmax probability, not a cell fraction, so the evaluation also reports a straight-line mapping fit on train hospitals only (a test checks that changing test truth leaves the fit unchanged). Pearson r is the same for both; MAE and catch rate differ.
+- Verdict from the bootstrap of (pathologist MAE − app MAE): "better" if the 95% interval is above 0, "worse" if below 0, otherwise "comparable" (AGENTS.md §8 Phase 5 names only better/comparable; "worse" is added so a clear loss isn't reported as "comparable").
+- `pearson_r` returns NaN for a constant input instead of dividing by zero.
+- `evaluate` refuses scores from the demo model unless `--allow-fake` (pipeline checks only), so fake numbers can't land in `results/tcga_validation.json` by accident.
+- `TCGA_DIR` overrides `paths.tcga_dir`, so Delta jobs use `/work/nvme/bfqi/$USER/tcga` without editing config.yaml. labels.csv, slides and per-slide scores never leave it; only aggregate counts (`results/tcga_labels_summary.json`) and metrics are committed.
+- Scoring is resumable (appends one row per slide to app_scores.csv; a failed slide records its error and is left out), so a timed-out job can be resubmitted. Per AGENTS.md §8 Phase 3, the first job is `--limit 5`.
+- Smoke test: `score --model fake` and `evaluate --allow-fake` ran end to end on 6 synthetic tiled TIFFs saved as .svs in a scratch TCGA_DIR; the second `score` run skipped all 6.
+- Frontend tests on this PC needed `npm ci` again (teammates added `@testing-library/user-event`); then 64/64 passed.

@@ -61,3 +61,17 @@ paths:
   uploads: data/uploads
   results: results
   crc_val_dir: data/CRC-VAL-HE-7K   # CRC-VAL-HE-7K tiles, one folder per class (scripts/get_crc_val.sh)
+  tcga_dir: data/tcga               # TCGA slides, labels.csv and app scores. On Delta: /work/nvme/bfqi/<username>/tcga
+
+# Phase 8: TCGA validation against ABSOLUTE purity (AGENTS.md §1, §8). Frozen slides (TS/BS) only:
+# the pathologist's % tumor cells was recorded on them, not on the diagnostic (DX) slides.
+tcga:
+  project: TCGA-LUAD
+  slide_kinds: [TS, BS]
+  absolute_url: https://api.gdc.cancer.gov/data/4f277128-f793-4354-a13d-30cc7fe9f6b5  # PanCanAtlas ABSOLUTE purity/ploidy
+  split_fractions: {train: 0.6, cal: 0.1, test: 0.3}   # by hospital (tissue source site), never by slide
+  max_slides: {train: 100, cal: 0, test: 150}          # slides to download and score per split (seeded sample)
+  min_test_slides: 60
+  min_test_below_cutoff: 15
+  catch_cutoff: 60          # % purity: below this, a sample is at risk for sequencing
+  n_bootstrap: 1000

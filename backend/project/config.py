@@ -11,7 +11,7 @@ REQUIRED_KEYS = [
     "model", "seed", "classes", "prompt_set", "prompts",
     "tile_px", "target_mpp", "default_mpp", "max_display_px", "max_upload_mb", "max_tiles",
     "tissue_min_saturation", "tissue_threshold", "batch_size",
-    "region_tiles", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths",
+    "region_tiles", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths", "tcga",
 ]
 
 
