@@ -5,19 +5,19 @@ const comp = (tumor: number, necrosis: number): Composition => {
   return { tumor, stroma: rest * 0.5, immune: rest * 0.2, necrosis, normal: rest * 0.2, fat_other: rest * 0.1 }
 }
 
-function region(rank: number, x: number, y: number, tumor: number, necrosis: number, reasons: string[]): Region {
+export function region(rank: number, x: number, y: number, tumor: number, necrosis: number, reasons: string[], side = 256): Region {
   return {
     rank,
     is_best: rank === 1,
     x,
     y,
-    w: 256,
-    h: 256,
+    w: side,
+    h: side,
     score: Number((tumor - necrosis - 0.02).toFixed(2)),
     tissue_coverage: 0.98 - rank * 0.01,
     tumor_std: 0.04 + rank * 0.01,
     composition: comp(tumor, necrosis),
-    size_um: 512,
+    size_um: side * 2,
     reasons,
   }
 }
@@ -28,6 +28,9 @@ export function makeResult(overrides: Partial<Result> = {}): Result {
     model: 'fake',
     image: { url: '/api/jobs/abc/display.png', width: 2048, height: 1536, mpp: 0.5, mpp_estimated: false },
     heatmap_url: '/api/jobs/abc/heatmap.png',
+    regions_url: '/api/jobs/abc/regions',
+    box_um: 512,
+    box_sizes_um: [512, 1024, 2048],
     tiles: { count: 412, capped: false },
     slide_composition: comp(0.41, 0.05),
     regions: [

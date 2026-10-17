@@ -50,6 +50,6 @@ export default function JobView({ id, initial }: { id: string; initial: JobStatu
     }
   }, [id, finished])
 
-  if (status.status === 'done' && status.result) return <Results result={status.result} />
+  if (status.status === 'done' && status.result) return <Results key={status.result.regions_url} result={status.result} />
   return <Analyzing status={status} />
 }

@@ -9,6 +9,8 @@ import pytest
 from project.config import load_config
 from project.regions import (
     HEATMAP_RGB,
+    box_tiles,
+    default_box_um,
     parse_pct,
     pct,
     rank_regions,
@@ -189,6 +191,32 @@ def test_box_is_in_display_pixels(cfg):
     best = rank(cfg, probs, full_tissue(12, 12), tile_size=512, scale=4.0)[0][0]
     assert (best["x"], best["y"], best["w"], best["h"]) == (3 * 128, 2 * 128, n * 128, n * 128)
     assert best["size_um"] == pytest.approx(n * cfg["tile_px"] * cfg["target_mpp"])
+
+
+def test_box_tiles_converts_offered_sizes(cfg):
+    tile_um = cfg["tile_px"] * cfg["target_mpp"]  # 128 µm
+    assert default_box_um(cfg) == cfg["region_tiles"] * tile_um
+    for size in cfg["box_sizes_um"]:
+        n = box_tiles(cfg, size)
+        assert isinstance(n, int) and n * tile_um == size
+    assert box_tiles(cfg, 1024.0) == 8  # a float from a query string works too
+
+
+@pytest.mark.parametrize("size", [1000, 0, -512, 64])
+def test_box_tiles_refuses_sizes_not_offered(cfg, size):
+    with pytest.raises(ValueError, match="not one of"):
+        box_tiles(cfg, size)
+
+
+def test_a_bigger_box_covers_more_tiles_and_reports_its_size(cfg):
+    probs = grid(cfg, 20, 20, tumor=0.1)
+    set_block(cfg, probs, 4, 4, 8, tumor=0.9)
+    big = {**cfg, "region_tiles": box_tiles(cfg, 1024)}
+    best = rank(big, probs, full_tissue(20, 20))[0][0]
+    assert (best["row"], best["col"]) == (4, 4)
+    assert (best["w"], best["h"]) == (8 * 256, 8 * 256)
+    assert best["size_um"] == pytest.approx(1024)
+    assert best["composition"]["tumor"] == pytest.approx(0.9)
 
 
 # --- reasons --------------------------------------------------------------------------------------

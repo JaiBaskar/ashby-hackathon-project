@@ -31,3 +31,6 @@ export const settings = {
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB),
   defaultMpp: Number(process.env.DEFAULT_MPP),
 }
+
+// Box sizes come in µm (multiples of the 128 µm tile); people pick punches in mm. 512 µm reads as "0.5 mm".
+export const boxLabel = (um: number) => `${Number((um / 1000).toFixed(1))} mm`

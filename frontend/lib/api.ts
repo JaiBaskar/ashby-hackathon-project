@@ -26,8 +26,18 @@ export interface Result {
   model: string
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
+  regions_url: string
+  box_um: number
+  box_sizes_um: number[]
   tiles: { count: number; capped: boolean }
   slide_composition: Composition
+  regions: Region[]
+  note: string | null
+}
+
+// GET {regions_url}?box_um=… : the same tile scores ranked with another box size.
+export interface RegionsAtSize {
+  box_um: number
   regions: Region[]
   note: string | null
 }

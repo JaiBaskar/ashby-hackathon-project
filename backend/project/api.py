@@ -18,7 +18,9 @@ from pydantic import BaseModel
 from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
-from project.regions import rank_regions, score_grid, slide_composition, tumor_heatmap
+from project.regions import (
+    box_tiles, default_box_um, rank_regions, score_grid, slide_composition, tumor_heatmap,
+)
 from project.tiling import NoTissueError, build_grid, read_tiles
 
 log = logging.getLogger(__name__)
@@ -61,8 +63,18 @@ class Result(BaseModel):
     model: str
     image: ImageInfo
     heatmap_url: str
+    regions_url: str
+    box_um: float
+    box_sizes_um: list[float]
     tiles: TileInfo
     slide_composition: dict[str, float]
+    regions: list[Region]
+    note: Optional[str]
+
+
+class Regions(BaseModel):
+    """The regions for one box size, from GET /api/jobs/{id}/regions?box_um=…"""
+    box_um: float
     regions: list[Region]
     note: Optional[str]
 
@@ -92,6 +104,7 @@ class Job:
         self.error = None
         self.display_png = None
         self.heatmap_png = None
+        self.ranking = None  # (tile scores, tissue, tile_size, scale), kept so a box resize skips the model
         self.history = [(None, 0.0)]
         self.lock = threading.Lock()
 
@@ -134,6 +147,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
         job.advance("ranking", 0.95)
         classes = cfg["classes"]
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
+        job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
         result = Result(
@@ -141,6 +155,9 @@ def run_job(job, job_id, slide, path, cfg, backend):
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
+            regions_url=f"/api/jobs/{job_id}/regions",
+            box_um=default_box_um(cfg),
+            box_sizes_um=cfg["box_sizes_um"],
             tiles=TileInfo(count=len(tiles), capped=grid.capped),
             slide_composition=slide_composition(probs, classes),
             regions=[Region(**r) for r in regions],
@@ -217,6 +234,22 @@ def create_app(cfg=None):
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
         return get_job(request, job_id).status_body()
+
+    @app.get("/api/jobs/{job_id}/regions", response_model=Regions)
+    def regions_at_size(request: Request, job_id: str, box_um: float):
+        """Re-rank a finished job's stored tile scores with another box size. The model isn't run again."""
+        job = get_job(request, job_id)
+        try:
+            n = box_tiles(cfg, box_um)
+        except ValueError as e:
+            raise HTTPException(400, str(e)) from e
+        with job.lock:
+            ranking = job.ranking if job.status == "done" else None
+        if ranking is None:
+            raise HTTPException(409, "This analysis is still running, or it failed. Box size can change once it's done.")
+        probs, tissue, tile_size, scale = ranking
+        regions, note = rank_regions(probs, tissue, {**cfg, "region_tiles": n}, tile_size, scale)
+        return Regions(box_um=box_um, regions=[Region(**r) for r in regions], note=note)
 
     @app.get("/api/jobs/{job_id}/display.png")
     def display_png(request: Request, job_id: str):
