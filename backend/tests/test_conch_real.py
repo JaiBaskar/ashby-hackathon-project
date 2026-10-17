@@ -9,7 +9,8 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from project.config import load_config, repo_path
+from project.config import load_config, repo_path, with_prompt_set
+from project.evaldata import TUMOR, bcss_tiles
 from project.metrics import auroc
 from project.model import find_hf_token, load_backend
 from tests.synthetic import PURPLE, he_slide, solid
@@ -17,6 +18,10 @@ from tests.synthetic import PURPLE, he_slide, solid
 pytestmark = pytest.mark.realmodel
 
 N_CRC_TILES = 200
+N_BCSS_TILES = 300
+MIN_AUROC = 0.8  # fixed before any BCSS run (reports/decisions.md)
+PROMPT_SETS = ["v2", "v3"]  # v1 (colon-leaning) was retired after the CRC + BCSS comparison; v3 = v2 + organ prompts
+ORGAN = {"crc": "colon", "bcss": "breast"}  # the organ a user would pick for each dataset
 
 
 @pytest.fixture(scope="module")
@@ -25,13 +30,20 @@ def cfg():
 
 
 @pytest.fixture(scope="module")
-def conch(cfg):
+def conch_for(cfg):
     if not find_hf_token():
         pytest.fail("make test-real needs HF_TOKEN (or `hf auth login`) from an account with CONCH access.")
-    return load_backend({**cfg, "model": "conch"})
+    backends = {}
+
+    def get(prompt_set):
+        if prompt_set not in backends:
+            backends[prompt_set] = load_backend({**with_prompt_set(cfg, prompt_set), "model": "conch"})
+        return backends[prompt_set]
+    return get
 
 
-def test_real_conch_same_tile_same_scores(conch, cfg):
+def test_real_conch_same_tile_same_scores(conch_for, cfg):
+    conch = conch_for(cfg["prompt_set"])
     tiles = [he_slide(256, 256), solid(PURPLE)]
     first, second = conch.predict(tiles), conch.predict(tiles)
     assert first.shape == (2, len(cfg["classes"]))
@@ -39,40 +51,58 @@ def test_real_conch_same_tile_same_scores(conch, cfg):
     np.testing.assert_allclose(first.sum(axis=1), 1.0, atol=1e-5)
 
 
-def test_real_conch_tumor_auroc_on_crc_val_he_7k(conch, cfg):
+def crc_tiles(cfg):
+    """CRC-VAL-HE-7K (Kather et al. 2019): colorectal, 224 px tiles at 0.5 µm/px, one folder per class."""
     root = repo_path(cfg["paths"]["crc_val_dir"])
     files = sorted(root.glob("*/*.tif"))
     if not files:
-        pytest.skip(
-            f"CRC-VAL-HE-7K not found at {root} (config key paths.crc_val_dir). "
-            "Get it with scripts/get_crc_val.sh."
-        )
+        pytest.skip(f"CRC-VAL-HE-7K not found at {root} (config key paths.crc_val_dir). "
+                    "Get it with scripts/get_crc_val.sh.")
     rng = np.random.default_rng(cfg["seed"])
     picked = [files[i] for i in sorted(rng.choice(len(files), size=N_CRC_TILES, replace=False))]
-    is_tumor = np.array([p.parent.name == "TUM" for p in picked])
-    # CRC-VAL-HE-7K is colorectal tissue, so the colon prompts are the ones the app would use; the generic
-    # ("other") prompts are recorded too. These 200 tiles were never used to choose prompts.
-    emb = conch.embed([Image.open(p).convert("RGB") for p in picked])
-    t = cfg["classes"].index("tumor")
-    score = auroc(is_tumor, conch.classify(emb, "colon")[:, t])
+    images = [Image.open(p).convert("RGB") for p in picked]
+    return images, np.array([p.parent.name == "TUM" for p in picked]), {
+        "dataset": "CRC-VAL-HE-7K (Kather et al. 2019), colorectal", "positive": "TUM"}
+
+
+def bcss(cfg):
+    """BCSS (Amgad et al. 2019): TCGA breast regions with tissue masks (scripts/get_bcss.py)."""
+    root = repo_path(cfg["paths"]["bcss_dir"])
+    if not (root / "masks").is_dir():
+        pytest.skip(f"BCSS not found at {root} (config key paths.bcss_dir). Get it with scripts/get_bcss.py.")
+    tiles = bcss_tiles(root, n=N_BCSS_TILES, seed=cfg["seed"])
+    return [t.image for t in tiles], np.array([t.code == TUMOR for t in tiles]), {
+        "dataset": "BCSS (Amgad et al. 2019), TCGA breast", "positive": "tumor (code 1)",
+        "n_rois": len({t.roi for t in tiles})}
+
+
+@pytest.mark.parametrize("prompt_set", PROMPT_SETS)
+@pytest.mark.parametrize("dataset", ["crc", "bcss"])
+def test_real_conch_tumor_auroc(conch_for, cfg, dataset, prompt_set):
+    images, is_tumor, meta = {"crc": crc_tiles, "bcss": bcss}[dataset](cfg)
+    # Scored with the dataset's organ prompts (what the app would use), and the generic ("other") prompts too.
+    # None of these tiles were used to choose prompts (scripts/prompt_dev/ uses a separate CRC sample).
+    conch, t = conch_for(prompt_set), cfg["classes"].index("tumor")
+    emb = conch.embed(images)
+    score = auroc(is_tumor, conch.classify(emb, ORGAN[dataset])[:, t])
     score_generic = auroc(is_tumor, conch.classify(emb, "other")[:, t])
 
-    out = repo_path(cfg["paths"]["results"]) / f"conch_auroc_{cfg['prompt_set']}.json"
+    out = repo_path(cfg["paths"]["results"]) / f"conch_auroc_{dataset}_{prompt_set}.json"
     out.write_text(json.dumps({
-        "metric": "tumor (TUM) vs rest AUROC, zero-shot",
+        "metric": "tumor vs rest AUROC, zero-shot",
         "auroc": round(float(score), 4),
-        "organ": "colon",
+        "organ": ORGAN[dataset],
         "auroc_generic_prompts": round(float(score_generic), 4),
-        "n_tiles": len(picked),
+        "n_tiles": len(images),
         "n_tumor": int(is_tumor.sum()),
         "seed": cfg["seed"],
-        "prompt_set": cfg["prompt_set"],
-        "dataset": "CRC-VAL-HE-7K (Kather et al. 2019)",
+        "prompt_set": prompt_set,
+        **meta,
     }, indent=2) + "\n")
-    assert score >= 0.8, f"tumor-vs-rest AUROC {score:.3f} < 0.8 (written to {out})"
+    assert score >= MIN_AUROC, f"{dataset}/{prompt_set}: tumor-vs-rest AUROC {score:.3f} < {MIN_AUROC} ({out})"
 
 
-def test_real_conch_slide_pipeline_tracks_known_tumor_share(conch, cfg, tmp_path):
+def test_real_conch_slide_pipeline_tracks_known_tumor_share(conch_for, cfg, tmp_path):
     """Mosaic .svs slides of labeled CRC tiles with 10%, 50% and 90% tumor tiles, through the same
     score_slide the TCGA validation uses. Catches slide-reading bugs (pipeline ≠ tiles scored directly)
     and shows how the whole-slide tumor % relates to the true tumor share."""
@@ -82,6 +112,7 @@ def test_real_conch_slide_pipeline_tracks_known_tumor_share(conch, cfg, tmp_path
     from tests.test_tcga import mosaic
     from tests.synthetic import save_tiled_tiff
 
+    conch = conch_for(cfg["prompt_set"])
     root = repo_path(cfg["paths"]["crc_val_dir"])
     if not sorted(root.glob("TUM/*.tif")):
         pytest.skip(f"CRC-VAL-HE-7K not found at {root} (config key paths.crc_val_dir).")

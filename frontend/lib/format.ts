@@ -45,3 +45,16 @@ export const ORGAN_LABELS: Record<string, string> = {
 }
 
 export const organLabel = (organ: string) => ORGAN_LABELS[organ] ?? organ
+
+// Box sizes come in µm (multiples of the 128 µm tile); people pick punches in mm. 512 µm reads as "0.5 mm".
+export const boxLabel = (um: number) => `${Number((um / 1000).toFixed(1))} mm`
+
+// "Oct 17, 2026, 2:05 PM" in the viewer's time zone (or a fixed one, for tests).
+export function formatCreated(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
+}
+
+export function cancerTypeLabel(type: string | null | undefined): string {
+  if (!type) return 'Not identified yet'
+  return type.charAt(0).toUpperCase() + type.slice(1).replaceAll('_', ' ')
+}

@@ -1,8 +1,11 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import type { Result } from '@/lib/api'
 import { pct } from '@/lib/format'
+import FreeBox, { fromCorners, useDrag, type Rect } from './FreeBox'
+
+const MIN_DRAW_PX = 4 // rendered px: a smaller drag is a click, not a box
 
 // Box coordinates are in display-image pixels; the image is drawn at whatever width the layout gives it.
 // Scale = rendered width / display width, re-measured on load, window resize and container resize.
@@ -32,11 +35,34 @@ interface Props {
   selected: number
   onSelect: (rank: number) => void
   showHeatmap: boolean
+  // The user's own box (display px), the drawing mode that creates it, and its callbacks.
+  free: Rect | null
+  freeSelected: boolean
+  freeLabel: string
+  freeRef: Ref<HTMLDivElement>
+  drawing: boolean
+  onDrawn: (rect: Rect | null) => void
+  onFreeSelect: () => void
+  onFreeChange: (rect: Rect, when: 'drag' | 'now' | 'soon') => void
 }
 
-export default function SlideViewer({ result, selected, onSelect, showHeatmap }: Props) {
+export default function SlideViewer(props: Props) {
+  const { result, selected, onSelect, showHeatmap, free, drawing, onDrawn } = props
   const { image } = result
   const { ref, scale, measure } = useScale(image.width)
+  const [sketch, setSketch] = useState<Rect | null>(null)
+
+  // Drawing: the press point is one corner and the pointer is the other, in display px.
+  const drag = useDrag<[number, number]>(scale, ([ax, ay], dx, dy, done) => {
+    const rect = fromCorners(ax, ay, ax + dx, ay + dy, image.width, image.height)
+    if (!done) return setSketch(rect)
+    setSketch(null)
+    onDrawn(rect.w * scale >= MIN_DRAW_PX && rect.h * scale >= MIN_DRAW_PX ? rect : null)
+  })
+  const startDraw = (e: React.PointerEvent) => {
+    const box = ref.current!.getBoundingClientRect()
+    drag([(e.clientX - box.left) / scale, (e.clientY - box.top) / scale], e)
+  }
 
   return (
     <div className="relative overflow-hidden rounded-lg bg-surface-sunken">
@@ -89,6 +115,28 @@ export default function SlideViewer({ result, selected, onSelect, showHeatmap }:
           </button>
         )
       })}
+      {free && (
+        <FreeBox
+          ref={props.freeRef}
+          rect={free}
+          scale={scale}
+          bounds={image}
+          selected={props.freeSelected}
+          label={props.freeLabel}
+          onSelect={props.onFreeSelect}
+          onChange={props.onFreeChange}
+        />
+      )}
+      {drawing && (
+        <div data-testid="draw-surface" aria-hidden onPointerDown={startDraw} className="absolute inset-0 z-30 cursor-crosshair touch-none">
+          {sketch && (
+            <div
+              className="free-box absolute rounded-sm"
+              style={{ left: `${sketch.x * scale}px`, top: `${sketch.y * scale}px`, width: `${sketch.w * scale}px`, height: `${sketch.h * scale}px` }}
+            />
+          )}
+        </div>
+      )}
     </div>
   )
 }

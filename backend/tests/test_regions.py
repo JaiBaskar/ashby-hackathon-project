@@ -9,6 +9,9 @@ import pytest
 from project.config import load_config
 from project.regions import (
     HEATMAP_RGB,
+    box_tiles,
+    default_box_um,
+    measure_box,
     parse_pct,
     pct,
     rank_regions,
@@ -189,6 +192,125 @@ def test_box_is_in_display_pixels(cfg):
     best = rank(cfg, probs, full_tissue(12, 12), tile_size=512, scale=4.0)[0][0]
     assert (best["x"], best["y"], best["w"], best["h"]) == (3 * 128, 2 * 128, n * 128, n * 128)
     assert best["size_um"] == pytest.approx(n * cfg["tile_px"] * cfg["target_mpp"])
+
+
+def test_box_tiles_converts_offered_sizes(cfg):
+    tile_um = cfg["tile_px"] * cfg["target_mpp"]  # 128 µm
+    assert default_box_um(cfg) == cfg["region_tiles"] * tile_um
+    for size in cfg["box_sizes_um"]:
+        n = box_tiles(cfg, size)
+        assert isinstance(n, int) and n * tile_um == size
+    assert box_tiles(cfg, 1024.0) == 8  # a float from a query string works too
+
+
+@pytest.mark.parametrize("size", [1000, 0, -512, 64])
+def test_box_tiles_refuses_sizes_not_offered(cfg, size):
+    with pytest.raises(ValueError, match="not one of"):
+        box_tiles(cfg, size)
+
+
+def test_a_bigger_box_covers_more_tiles_and_reports_its_size(cfg):
+    probs = grid(cfg, 20, 20, tumor=0.1)
+    set_block(cfg, probs, 4, 4, 8, tumor=0.9)
+    big = {**cfg, "region_tiles": box_tiles(cfg, 1024)}
+    best = rank(big, probs, full_tissue(20, 20))[0][0]
+    assert (best["row"], best["col"]) == (4, 4)
+    assert (best["w"], best["h"]) == (8 * 256, 8 * 256)
+    assert best["size_um"] == pytest.approx(1024)
+    assert best["composition"]["tumor"] == pytest.approx(0.9)
+
+
+# --- free-form box: any rectangle, tiles weighted by how much of them it covers ------------------
+
+def measure(cfg, probs, tissue, x, y, w, h, tile_size=256, scale=1.0, mpp=0.5):
+    return measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h)
+
+
+def test_a_box_on_exactly_one_tile_reports_that_tile(cfg):
+    probs = grid(cfg, 4, 4, tumor=0.1)
+    set_block(cfg, probs, 1, 2, 1, tumor=0.8, necrosis=0.1)
+    box = measure(cfg, probs, full_tissue(4, 4), x=512, y=256, w=256, h=256)
+    assert box["composition"]["tumor"] == pytest.approx(0.8)
+    assert box["composition"]["necrosis"] == pytest.approx(0.1)
+    assert box["tumor_std"] == pytest.approx(0.0)
+    assert box["score"] == pytest.approx(0.8 - 0.1)
+    assert box["tiles"] == pytest.approx(1.0)
+    assert (box["width_um"], box["height_um"]) == (pytest.approx(128), pytest.approx(128))
+
+
+def test_partial_tiles_count_by_the_area_the_box_covers(cfg):
+    # Box from x = 192 to 448 covers the last quarter of tile 0 and three quarters of tile 1 (rows 0–1).
+    probs = grid(cfg, 2, 3, tumor=0.0)
+    probs[:, 1] = grid(cfg, 2, 1, tumor=0.8)[:, 0]
+    box = measure(cfg, probs, full_tissue(2, 3), x=192, y=0, w=256, h=512)
+    assert box["composition"]["tumor"] == pytest.approx(0.25 * 0.0 + 0.75 * 0.8)
+    assert box["tumor_std"] == pytest.approx(np.sqrt(0.25 * 0.6 ** 2 + 0.75 * 0.2 ** 2))
+    assert box["tiles"] == pytest.approx(2.0)
+    assert sum(box["composition"].values()) == pytest.approx(1.0)
+
+
+def test_any_rectangle_shape_and_scale_is_measured_in_µm(cfg):
+    probs = grid(cfg, 10, 10)
+    # 512 original px per tile, display downsampled 4x: 128 display px per tile, 1 original px = 0.25 µm.
+    box = measure(cfg, probs, full_tissue(10, 10), x=10, y=20, w=300, h=90, tile_size=512, scale=4.0, mpp=0.25)
+    assert (box["width_um"], box["height_um"]) == (pytest.approx(300 * 4 * 0.25), pytest.approx(90 * 4 * 0.25))
+    assert box["tiles"] == pytest.approx((300 / 128) * (90 / 128))
+    assert (box["x"], box["y"], box["w"], box["h"]) == (10, 20, 300, 90)
+
+
+def test_coverage_counts_glass_inside_the_box(cfg):
+    probs = grid(cfg, 2, 2)
+    tissue = np.array([[1.0, 0.0], [1.0, 0.0]])
+    probs[:, 1] = np.nan  # glass tiles aren't analyzed
+    box = measure(cfg, probs, tissue, x=0, y=0, w=512, h=512)
+    assert box["tissue_coverage"] == pytest.approx(0.5)
+    assert box["composition"]["tumor"] == pytest.approx(0.2)  # only analyzed tiles, weights renormalized
+    assert any("50% on tissue" in r for r in box["reasons"])
+
+
+def test_the_box_is_clipped_to_the_tile_grid(cfg):
+    probs = grid(cfg, 2, 2, tumor=0.4)
+    box = measure(cfg, probs, full_tissue(2, 2), x=-100, y=256, w=1000, h=1000)
+    assert (box["x"], box["y"], box["w"], box["h"]) == (0, 256, 512, 256)
+    assert box["composition"]["tumor"] == pytest.approx(0.4)
+
+
+@pytest.mark.parametrize("x, y, w, h", [(0, 0, 0, 100), (0, 0, 100, -5), (5000, 0, 100, 100)])
+def test_an_empty_box_is_refused(cfg, x, y, w, h):
+    with pytest.raises(ValueError, match="box"):
+        measure(cfg, grid(cfg, 2, 2), full_tissue(2, 2), x, y, w, h)
+
+
+def test_a_box_with_no_analyzed_tile_is_refused(cfg):
+    probs = np.full((2, 2, len(cfg["classes"])), np.nan)
+    with pytest.raises(ValueError, match="no analyzed tissue"):
+        measure(cfg, probs, np.zeros((2, 2)), 0, 0, 256, 256)
+
+
+def test_free_box_reasons_quote_its_own_numbers(cfg):
+    probs = grid(cfg, 4, 4, tumor=0.5, necrosis=0.02)
+    box = measure(cfg, probs, full_tissue(4, 4), x=0, y=0, w=1024, h=1024)
+    assert "Low necrosis (2%), which favors good DNA yield" in box["reasons"]
+    assert "Fully on tissue (100% coverage)" in box["reasons"]
+    assert "Tumor content is even across the box (low variation)" in box["reasons"]
+    small = measure(cfg, probs, full_tissue(4, 4), x=0, y=0, w=200, h=200)
+    assert any("fewer than 4 tiles" in r for r in small["reasons"])
+
+
+def test_a_free_box_on_a_suggested_region_matches_it(cfg):
+    n = cfg["region_tiles"]
+    rng = np.random.default_rng(0)
+    probs = grid(cfg, 12, 12)
+    probs[..., 0] = rng.uniform(0, 0.6, (12, 12))
+    probs[..., 1] = 1 - probs[..., 0] - probs[..., 2:].sum(axis=-1)
+    tissue = full_tissue(12, 12)
+    best = rank(cfg, probs, tissue)[0][0]
+    box = measure(cfg, probs, tissue, best["x"], best["y"], best["w"], best["h"])
+    assert box["score"] == pytest.approx(best["score"])
+    assert box["tumor_std"] == pytest.approx(best["tumor_std"])
+    for c in cfg["classes"]:
+        assert box["composition"][c] == pytest.approx(best["composition"][c])
+    assert box["tiles"] == pytest.approx(n * n)
 
 
 # --- reasons --------------------------------------------------------------------------------------

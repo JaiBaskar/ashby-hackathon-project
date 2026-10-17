@@ -144,6 +144,18 @@
 
 /* The best region: accent inner stroke, twice as thick, so it stands out without color too
    (it also carries a "Best" label). */
+/* The user's own box: dashed, so it reads as editable and differs from the suggestions without color,
+   with the same black outer outline for contrast on both stains. */
+@utility free-box {
+  border: var(--box-stroke-other) dashed var(--color-box-best);
+  box-shadow: 0 0 0 var(--box-outline-width) var(--color-box-outline);
+}
+
+@utility free-box-handle {
+  background: var(--color-box-other);
+  border: 1px solid var(--color-box-outline);
+}
+
 @utility region-box-best {
   border: var(--box-stroke-best) solid var(--color-box-best);
   box-shadow: 0 0 0 var(--box-outline-width) var(--color-box-outline);

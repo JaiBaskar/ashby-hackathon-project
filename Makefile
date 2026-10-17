@@ -1,8 +1,8 @@
 # One-command entry points. `make test` needs no GPU, no internet and no Hugging Face token.
 PY ?= .venv/bin/python
-FAST := not realmodel and not gpu and not delta
+FAST := not realmodel and not gpu and not delta and not db
 
-.PHONY: setup setup-real dev test test-backend test-frontend test-e2e test-real
+.PHONY: setup setup-real dev test test-backend test-frontend test-e2e test-real test-db
 
 setup:
 	python3.12 -m venv .venv
@@ -14,9 +14,9 @@ setup-real: setup
 	$(PY) -m pip install -r backend/requirements-real.txt
 
 # Next.js on http://localhost:3000 and FastAPI on http://localhost:8000. Next forwards /api/* to FastAPI
-# (API_URL), which runs the Python ML code. Ctrl-C stops both.
+# (API_URL), which runs the Python ML code. Loads .env if present (HF_TOKEN, DATABASE_URL). Ctrl-C stops both.
 dev:
-	trap 'kill 0' EXIT; 	$(PY) -m uvicorn --factory --app-dir backend project.api:create_app --port 8000 & 	cd frontend && npm run dev
+	trap 'kill 0' EXIT; set -a; if [ -f .env ]; then . ./.env; fi; set +a; 	$(PY) -m uvicorn --factory --app-dir backend project.api:create_app --port 8000 & 	cd frontend && npm run dev
 
 test: test-backend test-frontend test-e2e
 
@@ -33,3 +33,7 @@ test-e2e:
 
 test-real:
 	$(PY) -m pytest backend -m realmodel -v
+
+# Postgres store tests in a throwaway schema (dropped afterwards). Needs TEST_DATABASE_URL (loaded from .env).
+test-db:
+	set -a; if [ -f .env ]; then . ./.env; fi; set +a; $(PY) -m pytest backend -m db -v

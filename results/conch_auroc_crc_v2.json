@@ -1,0 +1,12 @@
+{
+  "metric": "tumor vs rest AUROC, zero-shot",
+  "auroc": 0.9323,
+  "organ": "colon",
+  "auroc_generic_prompts": 0.9323,
+  "n_tiles": 200,
+  "n_tumor": 44,
+  "seed": 1234,
+  "prompt_set": "v2",
+  "dataset": "CRC-VAL-HE-7K (Kather et al. 2019), colorectal",
+  "positive": "TUM"
+}

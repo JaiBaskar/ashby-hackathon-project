@@ -1,5 +1,6 @@
-import { CLASSES, type Region, type Result } from '@/lib/api'
+import { CLASSES, type Composition, type Region, type Result } from '@/lib/api'
 import { CLASS_LABELS, pct } from '@/lib/format'
+import { button } from './ui'
 
 // Token-backed swatch classes per tissue class (DESIGN.md, "Tissue classes").
 const SWATCH: Record<(typeof CLASSES)[number], string> = {
@@ -11,7 +12,45 @@ const SWATCH: Record<(typeof CLASSES)[number], string> = {
   fat_other: 'bg-class-fat-other',
 }
 
-export default function RegionPanel({ region, result }: { region: Region; result: Result }) {
+export function CompositionSection({ composition }: { composition: Composition }) {
+  return (
+    <>
+      <h3 className="mt-6 text-sm font-semibold">Cell composition</h3>
+      <div aria-hidden className="mt-2 flex h-3 overflow-hidden rounded-full bg-surface-sunken">
+        {CLASSES.map((c) => (
+          <div key={c} className={SWATCH[c]} style={{ width: `${composition[c] * 100}%` }} />
+        ))}
+      </div>
+      <ul aria-label="Cell composition" className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
+        {CLASSES.map((c) => (
+          <li key={c} className="flex items-center gap-2">
+            <span aria-hidden className={`size-2.5 shrink-0 rounded-sm ${SWATCH[c]}`} />
+            <span className="flex-1 text-ink-muted">{CLASS_LABELS[c]}</span>
+            <span className="tabular-nums">{pct(composition[c])}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="mt-2 text-xs text-ink-muted">Estimated from tile classification, not individual cell counts</p>
+    </>
+  )
+}
+
+export function Reasons({ reasons, title = 'Why this region' }: { reasons: string[]; title?: string }) {
+  return (
+    <>
+      <h3 className="mt-6 text-sm font-semibold">{title}</h3>
+      <ul className="mt-2 space-y-1.5">
+        {reasons.map((reason) => (
+          <li key={reason} className="relative pl-4 before:absolute before:top-2.5 before:left-0 before:size-1.5 before:rounded-full before:bg-accent-strong">
+            {reason}
+          </li>
+        ))}
+      </ul>
+    </>
+  )
+}
+
+export default function RegionPanel({ region, result, onAdjust }: { region: Region; result: Result; onAdjust?: () => void }) {
   const estimated = result.image.mpp_estimated
   return (
     <section
@@ -31,31 +70,8 @@ export default function RegionPanel({ region, result }: { region: Region; result
         </p>
       </div>
 
-      <h3 className="mt-6 text-sm font-semibold">Cell composition</h3>
-      <div aria-hidden className="mt-2 flex h-3 overflow-hidden rounded-full bg-surface-sunken">
-        {CLASSES.map((c) => (
-          <div key={c} className={SWATCH[c]} style={{ width: `${region.composition[c] * 100}%` }} />
-        ))}
-      </div>
-      <ul aria-label="Cell composition" className="mt-3 grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm">
-        {CLASSES.map((c) => (
-          <li key={c} className="flex items-center gap-2">
-            <span aria-hidden className={`size-2.5 shrink-0 rounded-sm ${SWATCH[c]}`} />
-            <span className="flex-1 text-ink-muted">{CLASS_LABELS[c]}</span>
-            <span className="tabular-nums">{pct(region.composition[c])}</span>
-          </li>
-        ))}
-      </ul>
-      <p className="mt-2 text-xs text-ink-muted">Estimated from tile classification, not individual cell counts</p>
-
-      <h3 className="mt-6 text-sm font-semibold">Why this region</h3>
-      <ul className="mt-2 space-y-1.5">
-        {region.reasons.map((reason) => (
-          <li key={reason} className="relative pl-4 before:absolute before:top-2.5 before:left-0 before:size-1.5 before:rounded-full before:bg-accent-strong">
-            {reason}
-          </li>
-        ))}
-      </ul>
+      <CompositionSection composition={region.composition} />
+      <Reasons reasons={region.reasons} />
 
       <dl className="mt-6 grid grid-cols-2 gap-x-6 gap-y-4 border-t border-line pt-5 text-sm">
         <div className="col-span-2">
@@ -78,6 +94,11 @@ export default function RegionPanel({ region, result }: { region: Region; result
           </dd>
         </div>
       </dl>
+      {onAdjust && (
+        <button type="button" onClick={onAdjust} className={`${button.secondary} mt-5 w-full`}>
+          Adjust this box
+        </button>
+      )}
     </section>
   )
 }

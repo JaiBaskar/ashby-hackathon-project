@@ -21,6 +21,23 @@ def parse_pct(text):
     return [int(m) for m in re.findall(r"(\d+)%", text)]
 
 
+def tile_um(cfg):
+    return cfg["tile_px"] * cfg["target_mpp"]
+
+
+def default_box_um(cfg):
+    return cfg["region_tiles"] * tile_um(cfg)
+
+
+def box_tiles(cfg, box_um):
+    """Tiles per box side for one of the offered box sizes (config box_sizes_um)."""
+    offered = cfg["box_sizes_um"]
+    if not any(abs(box_um - size) < 1e-6 for size in offered):
+        sizes = ", ".join(f"{size:g}" for size in offered)
+        raise ValueError(f"Box size {box_um:g} µm is not one of the sizes on offer ({sizes} µm).")
+    return round(box_um / tile_um(cfg))
+
+
 def region_score(tumor, necrosis, weights):
     """tumor − w_necrosis × necrosis − w_variation × std(tumor across tiles), from per-tile values."""
     tumor, necrosis = np.asarray(tumor, float), np.asarray(necrosis, float)
@@ -141,6 +158,65 @@ def rank_regions(probs, tissue, cfg, tile_size, scale):
     for region in picked:
         region["reasons"] = _reasons(region, picked[0], top_tumor, cfg["reason_cutoffs"])
     return picked, _note(len(picked), n_windows, cfg)
+
+
+def _overlap(start, end, n):
+    """How much of each of n unit cells the interval [start, end) covers (0–1 per cell)."""
+    edges = np.arange(n)
+    return np.clip(np.minimum(end, edges + 1) - np.maximum(start, edges), 0, 1)
+
+
+def measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h):
+    """Composition, score and reasons for any rectangle, in display pixels, drawn by the user.
+
+    Each tile counts by the share of it the box covers, so the box needn't line up with the tile grid.
+    The box is clipped to the tile grid. Tiles that weren't analyzed (glass, or dropped by max_tiles)
+    count toward coverage but not composition. A box on exactly a suggested region gives that region's numbers.
+    """
+    rows, cols = tissue.shape
+    px = tile_size / scale  # display px per tile
+    x0, y0 = max(x, 0.0), max(y, 0.0)
+    x1, y1 = min(x + w, cols * px), min(y + h, rows * px)
+    if x1 <= x0 or y1 <= y0:
+        raise ValueError("The box is empty or outside the analyzed part of the image. Draw it over the tissue.")
+    weight = np.outer(_overlap(y0 / px, y1 / px, rows), _overlap(x0 / px, x1 / px, cols))
+    area = weight.sum()
+    analyzed = ~np.isnan(probs).any(axis=-1)
+    tile_w = np.where(analyzed, weight, 0.0)
+    if tile_w.sum() <= 0:
+        raise ValueError("This box has no analyzed tissue in it. Move it over the tissue.")
+
+    classes = cfg["classes"]
+    filled = np.nan_to_num(probs)
+    comp = (filled * tile_w[..., None]).sum(axis=(0, 1)) / tile_w.sum()
+    t, k = classes.index("tumor"), classes.index("necrosis")
+    tumor_std = float(np.sqrt((tile_w * (filled[..., t] - comp[t]) ** 2).sum() / tile_w.sum()))
+    score = float(comp[t] - cfg["weights"]["necrosis"] * comp[k] - cfg["weights"]["variation"] * tumor_std)
+    coverage = float((weight * tissue).sum() / area)
+    cut = cfg["reason_cutoffs"]
+
+    reasons = []
+    if comp[k] <= cut["low_necrosis"]:
+        reasons.append(f"Low necrosis ({pct(comp[k])}), which favors good DNA yield")
+    if coverage >= cut["full_coverage"]:
+        reasons.append(f"Fully on tissue ({pct(coverage)} coverage)")
+    elif coverage < cfg["min_coverage"]:
+        reasons.append(f"Only {pct(coverage)} on tissue: part of this box is glass or edge")
+    if tumor_std <= cut["low_variation"]:
+        reasons.append("Tumor content is even across the box (low variation)")
+    if area < 4:
+        reasons.append(f"Covers fewer than 4 tiles ({area:.1f}), so these numbers rest on very few tiles")
+
+    return {
+        "x": x0, "y": y0, "w": x1 - x0, "h": y1 - y0,
+        "width_um": (x1 - x0) * scale * mpp, "height_um": (y1 - y0) * scale * mpp,
+        "tiles": float(area),
+        "score": score,
+        "tissue_coverage": coverage,
+        "tumor_std": tumor_std,
+        "composition": {c: float(v) for c, v in zip(classes, comp)},
+        "reasons": reasons,
+    }
 
 
 def tumor_heatmap(probs, classes, tile_size, scale, display_size):

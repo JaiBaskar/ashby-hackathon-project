@@ -18,9 +18,12 @@ export default function Home() {
         <p className="mt-5 max-w-prose text-lg text-ink-muted">
           Upload a photo or scan of an H&amp;E slide, and get the five regions with the most tumor to sample.
         </p>
-        <div className="mt-9">
+        <div className="mt-9 flex flex-wrap gap-3">
           <Link href="/upload" className={button.primary}>
             Analyze a slide
+          </Link>
+          <Link href="/history" className={button.secondary}>
+            Past analyses
           </Link>
         </div>
         <div className="mt-10">

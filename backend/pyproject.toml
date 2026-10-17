@@ -11,4 +11,5 @@ markers = [
     "realmodel: needs real CONCH weights and a Hugging Face token (make test-real)",
     "gpu: needs CONCH on a GPU (AGENTS.md section 7)",
     "delta: needs real data on Delta (AGENTS.md section 7)",
+    "db: needs a real Postgres at TEST_DATABASE_URL (make test-db)",
 ]

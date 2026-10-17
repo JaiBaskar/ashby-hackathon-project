@@ -109,6 +109,47 @@ One line each: decision + reason.
 - `make test` now runs Playwright too (`make test-e2e`); `make setup` installs Chromium. `PYTHON` overrides the venv path (e.g. Windows).
 - `make test-real` didn't run: this Mac has no torch or CONCH in `.venv`, no `HF_TOKEN` or cached token, no CONCH weights and no CRC-VAL-HE-7K. Installing them means > 1 GB downloads, which need human approval (CLAUDE.md), and a CONCH-licensed account. `scripts/test_real.sbatch` is ready for Delta but wasn't submitted.
 
+## Prompt sets and the BCSS breast check
+- Goal: tumor detection for any cancer, not only colon. CONCH is used zero-shot; nothing is trained.
+- `config.yaml` now holds named `prompt_sets`; `prompt_set` picks one and `load_config` resolves it into `cfg["prompts"]`, so the model code didn't change. `v1` is the original set, which leans toward colon ("normal mucosa", "adenocarcinoma"). `v2` is worded for any organ: it adds invasive, squamous cell and poorly differentiated carcinoma, and its normal class uses "benign epithelium" and "normal glands or ducts". Stroma, immune, necrosis and fat/other are the same in both.
+- Fixed before any BCSS run: the bar stays at tumor-vs-rest AUROC ≥ 0.8 for both datasets; `v2` was frozen and not tuned on BCSS; `v2` becomes the default only if it clears 0.8 on both datasets and its mean AUROC across them is ≥ `v1`'s.
+- BCSS (TCGA breast, CC0): `scripts/get_bcss.py` takes a seeded subset (config `seed`) of the 151 regions while the total stays ≤ 0.9 GB, pinned to mirror commit `846c11f`. `project/evaldata.py` cuts non-overlapping 512 px crops at 0.25 µm/px, resizes them to 256 px (0.5 µm/px, the app's `target_mpp`), and keeps a crop only when one mask code covers ≥ 90% and no pixel is outside the region. DCIS, angioinvasion, "exclude" and "undetermined" crops are dropped from both sides.
+- The test asks for 300 BCSS tiles; the subset holds fewer pure crops than that, so all of them are used. Tile, tumor and region counts are in each result file.
+- Results: `results/conch_auroc_{crc,bcss}_{v1,v2}.json` (written by `make test-real`). All four clear 0.8, and `v2` met the rule, so `prompt_set` is now `v2`. The gap between the sets is small on both datasets, about one point, likely within sampling noise at these tile counts. Read it as "v2 is no worse on colon and works on breast", not as a clear win.
+- `results/conch_auroc_v1.json` from the first run is replaced by `conch_auroc_crc_v1.json`, which reproduces the same value.
+- This supersedes the Phase 7 note that `make test-real` didn't run: it now runs on this Mac (MPS) with the cached weights and `HF_HUB_OFFLINE=1`.
+- `v1` was then removed from `config.yaml` and the real-model tests, at the team's request, so `v2` is the only prompt set. Its wording is still in git history (commit `c62722d`). The `v1` result files are kept as the record of the comparison that retired it.
+
+## Box size utility
+- The results screen offers box sizes from `config.yaml` `box_sizes_um` (512, 1024, 2048 µm, shown as 0.5, 1 and 2 mm), so the box can match the punch or core that will be cut. The default stays `region_tiles: 4` (512 µm).
+- Changing size doesn't run the model again. Each job keeps its tile-score grid, tissue grid and scale; `GET /api/jobs/{id}/regions?box_um=…` re-ranks them with `region_tiles = box_um ÷ 128`. The tiles themselves stay 256 px at 0.5 µm/px: they're sized for the model, and the box only averages more or fewer of them.
+- Sizes are a fixed list, not free input: every box is a whole number of 128 µm tiles (checked when config loads), each size can be tested, and scores at one size stay comparable. A size not on the list is a 400 that names the ones on offer; a job that isn't done yet is a 409.
+- 512 µm is labeled "0.5 mm" in the picker; the region panel keeps the exact size ("512 µm square").
+- One size per ranking: boxes of different sizes are never mixed, because a small box can sit inside one tumor pocket and would always outscore a larger one.
+- The frontend fetches each size once and keeps it, so switching back is instant; the first size comes with the job result. A failed re-rank keeps the current boxes and shows the server's message.
+- The reason cutoffs (`low_variation` etc.) and the benchmark's pass checks were set at 512 µm and haven't been re-checked at 1 and 2 mm.
+
+## Request history (Postgres on Tiger Cloud)
+- Every analysis is recorded in a store: `PostgresStore` when `DATABASE_URL` is set (a Tiger Cloud DEV service, `ashby-prize` (id `yni5q7anm1`), shared tier, us-east-1), else `MemoryStore`. One contract test suite covers both (`backend/tests/test_store.py`; Postgres cases run with `make test-db` in a throwaway schema).
+- Privacy: the cloud gets only job metadata (id, created time, status, model, prompt set, cancer type) and the Result JSON (numbers, reasons, region boxes). Never the uploaded file, its filename or any image; a test uploads `MRN-4417-smith.png` and checks the name appears nowhere. Display and heatmap PNGs stay on this machine in `data/jobs/<id>/` (gitignored), so history links still work after a restart on the same machine.
+- `DATABASE_URL` set but unreachable → the server refuses to start (same rule as the model: no silent fallback). The error never echoes the URL, which may hold a password. Once running, a failed store write is logged and the result is still shown.
+- Rows left `running` by a crash are marked as errors on startup ("The server restarted during this analysis").
+- Image routes only touch the disk for 32-hex-character job ids, so a crafted id can't read other files.
+- Cancer type: the column, API field and card attribute exist but stay null and read "Not identified yet": the classifier is on hold while the model changes. Filling it in is one argument in `run_job` (`job.cancer_type`).
+- Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
+- The tile-score grid behind box resizing is also saved as `data/jobs/<id>/ranking.npz` (gitignored), so changing the box size still works for a job after a restart.
+- After the merge with the box-size work, `main` had `model: conch` in `config.yaml`. The API tests now force the demo model in their fixture, and Playwright starts FastAPI with `PROJECT_MODEL=fake` (a new override in `load_config`), so `make test` still needs no token, weights or GPU (AGENTS.md §7) while `make dev` uses CONCH.
+
+## Free-form box
+- Users can draw their own rectangle on the slide ("Draw a box"), or turn a suggested region into one ("Adjust this box"), then move it and resize it from 8 handles, like a screenshot selection. Dragging a side past the opposite one flips the box. Arrow keys move it 16 display px, and Shift + arrow keys resize it from the bottom-right; from the keyboard, "Draw a box" places a best-region-sized box in the middle and focuses it.
+- `GET /api/jobs/{id}/measure?x=&y=&w=&h=` (display px) measures any rectangle from the job's stored tile scores; the model isn't run again. Each tile counts by the share of it the box covers, so the box needn't line up with the 128 µm grid. A box placed exactly on a suggested region gives that region's score, composition and tumor std (tested).
+- Unanalyzed tiles (glass, or dropped by `max_tiles`) count toward coverage but not composition; a box with no analyzed tile is a 400 that says to move it over tissue. The box is clipped to the tile grid, which drops the partial right and bottom edge of the image.
+- Free-box reasons only state facts about the box itself (low necrosis, coverage, evenness), plus a warning when it covers fewer than 4 tiles' worth of area, since those numbers rest on very few tiles. It has no rank, so there's no "highest of all candidates" reason.
+- Pointer drags measure once, on release; keyboard changes wait 300 ms after the last key. Only the latest request's answer is shown.
+- The free box is dashed (the suggestions are solid), with the same black outer outline, so it's distinguishable without color and keeps contrast on both stains.
+- jsdom has no `PointerEvent`; `vitest.setup.ts` adds a small MouseEvent-based stand-in for the drag tests.
+- The image scale (µm/px) is saved with the tile scores in `ranking.npz`, so a free box still gets its size in µm after a restart; files saved before this fall back to `default_mpp`.
+
 ## Phase 8 (TCGA validation): code
 - Project TCGA-LUAD, frozen slides (TS/BS) only: a schema-only probe of the GDC showed `percent_tumor_cells` is recorded on TS/BS slides and essentially never on DX slides (BRCA 1 of 1,133; LUAD 0 of 541), so the comparison uses the slides the pathologist actually read (AGENTS.md §4). LUAD has 718 such slides with an ABSOLUTE call, ~125 MB median each.
 - ABSOLUTE: PanCanAtlas `TCGA_mastercalls.abs_tables_JSedit.fixed.txt` (GDC data id 4f277128-…). Only `call status == called`; sample_id = first 16 chars of the aliquot barcode in `sample` (9,991 of 10,786 rows match the §4 regex; the rest are non-TCGA-format names). A sample with two calls is dropped as ambiguous (none in the current file). Fraction → percent happens only in `labels.read_absolute`.
@@ -130,15 +171,26 @@ One line each: decision + reason.
 - So scoring goes train first: `score --split train`, then `check --split train` prints aggregate app vs. pathologist numbers (Pearson r, MAE, ranges) on train hospitals only and writes `results/tcga_check_train_<prompt_set>.json`. `check` refuses the test split: any prompt change is judged on train only, and test is scored and evaluated once, after the method is fixed.
 - Python 3.11 on Delta (pytorch-conda/2.8): nested same-quote f-strings are 3.12-only, so one was rewritten; a tokenizer scan found no others in backend/.
 
-## Prompt set v2: organ-aware prompts (after the 5-slide TCGA run)
+## Prompt set v3: organ-aware prompts (after the 5-slide TCGA run)
+(Written as "v2" on the phase8/tcga branch; renamed v3 when merged with main, whose v2 is the organ-neutral set above. Figures below are unchanged.)
 - Diagnosis: with prompt set v1, CONCH almost never made "tumor" the top class. A mosaic .svs of 89% CRC tumor tiles scored 0.8% tumor, and on 60 held-out TUM dev tiles tumor won 3 times (29 went to "normal"). Tumor still ranked above other tissue (AUROC 0.92), which is why the v1 AUROC test passed. Not a code bug: a new test shows the slide-reading path (OpenSlide → tiles → CONCH) gives exactly the scores of the same tiles scored directly (fake model and real CONCH).
 - Fix: organ-aware prompts. `organs: [colon, lung, breast, pancreas, prostate, other]`; each organ overrides the generic tumor and normal prompts with that organ's cancer and normal tissue; "other" uses the generic set. This mirrors how CONCH's authors ran zero-shot classification (organ and cancer named in the prompt).
 - Choice made on a CRC dev sample (60 tiles per class, seeded, the 200 AUROC tiles excluded), never on the AUROC tiles or TCGA test: `scripts/prompt_dev/`, results in `results/prompt_dev_crc.json`. Colon `colon_d`: TUM tiles called tumor 5% → 50%, tumor calls 97% correct, mean per-class accuracy 0.71 → 0.85. Generic `generic_a`: tumor 5% → 35%, no false tumor calls, but other classes drop (0.71 → 0.62); kept because the app's job is finding tumor. Two rounds of candidates only, to limit fitting to the dev tiles.
 - Lung, breast, pancreas and prostate prompts follow the colon pattern and are untested on tile data; lung is checked on the TCGA train split. 
-- Held-out check (v2): AUROC 0.926 colon / 0.934 generic on the 200 AUROC tiles (v1: 0.923). Mosaic slides with 11/50/89% tumor tiles now score 6.3/21.6/42.7% (v1: 0.03/2.5/0.8%), and the new realmodel test (more tumor → higher %, by > 20 points) passes.
+- Held-out check (organ-aware set): AUROC 0.926 colon / 0.934 generic on the 200 AUROC tiles (v1: 0.923). Mosaic slides with 11/50/89% tumor tiles now score 6.3/21.6/42.7% (v1: 0.03/2.5/0.8%), and the new realmodel test (more tumor → higher %, by > 20 points) passes.
 - Test fix: the mosaic test first compared the pipeline (which skips non-tissue tiles) with all 36 cells; it now compares on the cells the pipeline kept, and they match exactly. The 1-point tolerance is unchanged.
 - Backends split into `embed` and `classify(embeddings, organ)`; `predict = classify(embed)`. CONCH text embeddings are computed once per organ at startup. An unknown organ is a ValueError (API: 400 before the upload is saved).
 - API: optional `organ` form field (default `default_organ`), passed to the model and returned as `result.organ`. Frontend: "Organ" select on the upload screen (options and default from config.yaml through next.config `env`, labels in `lib/format.ts`), and "Organ: …" on the results screen.
 - TCGA: `tcga.organ: lung`. The GPU job now saves each slide's tile embeddings (`$TCGA_DIR/embeddings/<slide_id>.npz`: feats float32 [N, 512], coords int64 (x, y), model, plus tiling metadata), and scores go to `app_scores_<prompt_set>.csv`, so v1 and v2 never mix. `score --embeddings-only` re-scores saved embeddings with new prompts; `scripts/tcga_rescore.sbatch` runs it on the CPU account. The old v1 `app_scores.csv` (5 slides) is ignored.
 - Results files are per prompt set (`conch_auroc_<set>`, `conch_pipeline_check_<set>`, `tcga_check_<split>_<set>`, `tcga_validation_<set>`), so v1 and v2 numbers can be reported side by side.
 - Not run on this PC: the Playwright end-to-end suite (its browsers aren't installed here). The organ select defaults to "other", so the existing flows send the same request plus `organ=other`.
+
+## Merge of phase8/tcga with main (organ prompts + prompt sets)
+- main's named `prompt_sets` structure is kept. A prompt set may now carry an optional `organs:` block of per-organ tumor/normal overrides; `with_prompt_set` exposes it as `cfg["organ_prompts"]` next to `cfg["prompts"]`.
+- `v3` = main's `v2` (unchanged, the generic base for "other") + the organ overrides from phase8/tcga, written with a YAML anchor so the two can't drift. `prompt_set: v3`.
+- Why both: on the CRC dev tiles (`scripts/prompt_dev/`), main's v2 calls 17% of tumor tiles tumor and 18% of normal tiles normal; the colon overrides give 50% and 98%. v2 stays the generic set because it was frozen before the BCSS check and passes it.
+- Since v2's stroma/immune/necrosis/fat prompts equal the ones the colon overrides were tested with, v3-colon is exactly the tested `colon_d` set.
+- The real-model AUROC test now scores each dataset with its organ's prompts (CRC → colon, BCSS → breast) for v2 and v3, and records the generic-prompt AUROC alongside. The bar stays 0.8.
+- main's box-size tests stubbed `FakeBackend.predict(self, tiles)`; the pipeline now passes `organ=`, so the stubs accept and forward it. main's prompt-set tests skip a set's `organs` key when comparing it with the class list.
+- `Result.organ` is optional (null for jobs recorded in the history store before the organ picker); the results screen shows "Organ: …" only when it's set. `cancer_type` (main) is separate: a future predicted type, still null.
+- For e2e specs, Playwright config and screenshots, both branches had added their own copies; main's newer versions were kept.
