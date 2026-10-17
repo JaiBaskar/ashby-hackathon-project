@@ -119,3 +119,12 @@ One line each: decision + reason.
 - `results/conch_auroc_v1.json` from the first run is replaced by `conch_auroc_crc_v1.json`, which reproduces the same value.
 - This supersedes the Phase 7 note that `make test-real` didn't run: it now runs on this Mac (MPS) with the cached weights and `HF_HUB_OFFLINE=1`.
 - `v1` was then removed from `config.yaml` and the real-model tests, at the team's request, so `v2` is the only prompt set. Its wording is still in git history (commit `c62722d`). The `v1` result files are kept as the record of the comparison that retired it.
+
+## Request history (Postgres on Tiger Cloud)
+- Every analysis is recorded in a store: `PostgresStore` when `DATABASE_URL` is set (a Tiger Cloud DEV service, `puppymoggers`, shared tier, us-east-1), else `MemoryStore`. One contract test suite covers both (`backend/tests/test_store.py`; Postgres cases run with `make test-db` in a throwaway schema).
+- Privacy: the cloud gets only job metadata (id, created time, status, model, prompt set, cancer type) and the Result JSON (numbers, reasons, region boxes). Never the uploaded file, its filename or any image; a test uploads `MRN-4417-smith.png` and checks the name appears nowhere. Display and heatmap PNGs stay on this machine in `data/jobs/<id>/` (gitignored), so history links still work after a restart on the same machine.
+- `DATABASE_URL` set but unreachable → the server refuses to start (same rule as the model: no silent fallback). The error never echoes the URL, which may hold a password. Once running, a failed store write is logged and the result is still shown.
+- Rows left `running` by a crash are marked as errors on startup ("The server restarted during this analysis").
+- Image routes only touch the disk for 32-hex-character job ids, so a crafted id can't read other files.
+- Cancer type: the column, API field and card attribute exist but stay null and read "Not identified yet": the classifier is on hold while the model changes. Filling it in is one argument in `run_job` (`job.cancer_type`).
+- Playwright starts its backend with `DATABASE_URL` empty, so test runs never land in the real history.
