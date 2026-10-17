@@ -1,0 +1,236 @@
+# AGENTS.md: Tumor purity from H&E slides (Ashby Prize Hackathon 2026)
+
+Instructions for any coding agent working in this repo (Claude Code, opencode / `hpc-gpt`, Codex). Rules marked **MUST** or **NEVER** are hard requirements. If a rule blocks you, stop and ask the human; don't work around it.
+
+Sources of truth, in priority order:
+1. The human's instructions in the current session.
+2. This repo's `README.md` (project goal, team decisions, agreed formats). If it disagrees with this file, `README.md` wins. Flag the conflict.
+3. The organizers' repo, https://github.com/ncsa/ashby-hackathon-2026, for everything about Delta, Slurm, storage, models and event rules (`HACKATHON_COMPUTE.md`, `STUDENT_GUIDE.md`, `README.md`, `models.py`).
+
+---
+
+## 1. What we're building
+
+Estimate tumor purity (% tumor cells) of TCGA whole-slide H&E images better than the pathologist's recorded estimate, measured against ABSOLUTE (genomic) purity.
+
+Pipeline: `labels.csv` → tile slides → CONCH tile embeddings → slide features → ridge regression → evaluation vs. pathologist → zero-shot tumor heatmaps → (after MVP) conformal intervals and an OK / uncertain / resample decision.
+
+Headline metrics, always computed for the model **and** the pathologist on the **same** test slides:
+- MAE (in percentage points)
+- Pearson correlation
+- Catch rate at 60%: among test slides whose ABSOLUTE truth is < 60%, the fraction that the method also puts < 60%.
+
+---
+
+## 2. Workflow rules (test-first)
+
+- **MUST** write the tests for a phase before writing its implementation. Order per change: write the test → run it and confirm it fails for the right reason → implement → run the full fast suite.
+- **MUST** finish and pass a phase's tests before starting the next phase. Phases are in §8.
+- **NEVER** loosen a test threshold, delete a test, or add `skip`/`xfail` to make a suite pass. If a test looks wrong, stop and explain why to the human.
+- **NEVER** mark a phase done while any test in it fails.
+- **MUST** keep each change small enough to review: one phase or sub-step per commit.
+- When a result is surprising (model far better than pathologist, shuffle test still good, identical embeddings), assume a bug and investigate before reporting it.
+
+---
+
+## 3. Repo layout
+
+```
+config.yaml            # all paths, seeds, thresholds. No hard-coded paths in src/.
+src/purity/
+  labels.py            # Phase 1
+  tiling.py            # Phase 2
+  embed.py             # Phase 3
+  features.py, model.py# Phase 4
+  metrics.py, evaluate.py  # Phase 5
+  heatmap.py           # Phase 6
+  conformal.py         # post-MVP
+  run.py               # the one end-to-end command
+tests/                 # mirrors src/ (test_labels.py, test_tiling.py, ...)
+scripts/               # sbatch files and download scripts
+results/               # small outputs that are safe to commit (metrics JSON, plots)
+```
+
+- **NEVER** commit slides, tiles, embeddings, model weights, or anything over 5 MB. Large data lives under `data_root` from `config.yaml` (on Delta: `/work/nvme/bfqi/<username>/...`).
+- **NEVER** commit secrets. `HF_TOKEN`, `LUMEN_API_KEY` and hosted-server API keys come from environment variables only. `.gitignore` MUST cover `.env`, `*.svs`, `*.npz`, `*.h5`, `data/`, `logs/`.
+- Every random operation takes its seed from `config.yaml` (`seed`). Same seed → same output.
+
+---
+
+## 4. Agreed data formats
+
+Use these unless the repo `README.md` defines something different.
+
+**`labels.csv`** (one row per slide):
+
+| Column | Type | Meaning |
+|---|---|---|
+| `slide_id` | str, unique | GDC slide barcode / file stem |
+| `sample_id` | str | 16 chars, regex `^TCGA-[A-Z0-9]{2}-[A-Z0-9]{4}-\d{2}[A-Z]$` |
+| `patient_id` | str | first 12 chars of `sample_id` |
+| `hospital` | str | tissue source site code: chars 6–7 of the barcode (`TCGA-XX-...`) |
+| `pathologist_pct` | float, 0–100 | pathologist's % tumor cells |
+| `truth_pct` | float, 0–100 | ABSOLUTE purity × 100 |
+| `split` | `train` / `cal` / `test` | assigned by hospital, never by slide |
+
+- ABSOLUTE purity is published as a fraction (0–1). **MUST** convert to percent once, in `labels.py`, and nowhere else.
+- Join pathologist % and ABSOLUTE on the 16-character `sample_id`. Each pathologist % must come from the slide it was recorded on. If one sample has several slides with different percentages, keep them as separate rows and flag it to the human.
+
+**Tiles:** 256×256 px at the level/magnification set in `config.yaml`. A tile is identified by `(x, y)` = top-left corner in level-0 pixel coordinates.
+
+**Embeddings:** one file per slide, `<data_root>/embeddings/<slide_id>.npz`, with:
+- `feats`: float32 `[N, 512]` (CONCH image embedding, `proj_contrast=True, normalize=True`, as in the organizers' `models.py`)
+- `coords`: int64 `[N, 2]`, columns `(x, y)`, row *i* matches `feats[i]`
+- `model`: str, e.g. `"conch"`
+
+**Heatmap arrays:** indexed `array[row, col]` = `array[y_index, x_index]`. Never `array[x, y]`.
+
+---
+
+## 5. Delta (NCSA): access and rules
+
+Everything runs on **Delta** (`login.delta.ncsa.illinois.edu`). **NEVER** use DeltaAI (`bfqi-dtai-gh` in `accounts`); the organizers keep its few hours as their backup.
+
+**Log in**
+```bash
+ssh <username>@login.delta.ncsa.illinois.edu     # NCSA password, then Duo (type 1)
+accounts   # must list bfqi-delta-cpu and bfqi-delta-gpu
+quota
+```
+Username: allocations.access-ci.org → My Projects → hackathon Delta project → My Username. Browser option: https://openondemand.delta.ncsa.illinois.edu (CPU session: account `bfqi-delta-cpu`, partition `cpu-interactive`, `00-01:00:00`).
+
+**Environment** (run after every login and at the top of every job script and notebook):
+```bash
+module load pytorch-conda/2.8
+unset PYTHONNOUSERSITE          # MUST: otherwise --user packages are invisible
+export HF_HOME=/work/nvme/bfqi/$USER/hf
+```
+One-time installs, on the login node (compute nodes have no internet):
+```bash
+pip install --user "open_clip_torch>=2.24" pytest
+pip install --user git+https://github.com/mahmoodlab/CONCH.git
+hf auth login                   # token from an account that accepted the CONCH license
+```
+Any extra package (e.g. a slide reader such as `openslide-python`) is also installed here first. Confirm it imports inside a compute job before relying on it.
+
+**Login node: allowed vs. forbidden**
+- Allowed: editing, `git`, `pip install`, downloads, `pytest` on the fast suite, `sbatch`/`squeue`, calling the hosted servers over HTTP.
+- **NEVER** on the login node: loading CONCH, tiling many slides, running embeddings, training on large arrays. It gets silently killed.
+
+**Storage**
+
+| Path | Use |
+|---|---|
+| `/u/<username>` (100 GB, backed up) | code, envs |
+| `/work/nvme/bfqi/<username>` | slides, tiles, embeddings, HF cache (not backed up) |
+| `/work/nvme/bfqi/teams/<team>` | files shared with teammates |
+| `/projects/bfqi/shared/datasets/` | read-only shared datasets; read in place, don't copy |
+
+- **NEVER** use `/work/hdd` this weekend.
+- Everything under `/projects/bfqi` and `/work/nvme/bfqi` is readable by all participants. Nothing private goes there.
+- Ask the human (who asks #compute-issues) before downloading more than ~200 GB total.
+
+**CONCH weights on compute nodes.** Compute nodes can't reach Hugging Face. Pre-fetch on the login node (download only, no model load), then run jobs offline:
+```bash
+hf download MahmoodLab/CONCH          # login node, once
+export HF_HUB_OFFLINE=1               # in every GPU job
+```
+Load CONCH the way `models.py::load_conch` does: `create_model_from_pretrained("conch_ViT-B-16", "hf_hub:MahmoodLab/CONCH")`, then `.eval()`, and run under `torch.no_grad()`.
+
+**GPU jobs** (account `bfqi-delta-gpu`, partition `gpuA100x4`, no `--reservation` flag needed):
+```bash
+srun --account=bfqi-delta-gpu --partition=gpuA100x4 --gpus-per-node=1 \
+     --cpus-per-task=16 --mem=32G --time=01:00:00 --pty bash      # interactive
+sbatch --account=bfqi-delta-gpu scripts/embed.sbatch               # batch
+squeue -u $USER ; scancel <jobid>
+```
+Hard limits:
+- One GPU per team at a time. 10 GPU-hours per person for the whole event.
+- Request ≤ 16 CPUs and ≤ 62 GB memory per GPU (more is billed as extra GPU time). `*-interactive` partitions cost double.
+- `--time` ≤ 2 h, and the job MUST end before **Sun 7:59 am** and before **Sun 6:00 pm**. A job that crosses either boundary waits in the normal queue for days.
+- Release idle interactive sessions immediately.
+- CPU-only work (labels, tiling, ridge, evaluation) goes on `--account=bfqi-delta-cpu --partition=cpu`, not on GPUs.
+
+**Hosted CONCH server** (alternative for small batches): endpoint and key are posted in #compute-issues; call from inside Delta only; `POST /embed {"images": [<base64>...]}` with `Authorization: Bearer <key>`. It's shared at ~60 images/s for ~60 teams, so use it for at most a few thousand tiles. Full-slide embedding MUST use our own GPU job. Each user still needs their own CONCH license.
+
+The organizers' `run_embeddings.py` expects tile image files and writes JSON-in-CSV. For whole slides we tile in memory and write `.npz` (§4); reuse their `load_conch` pattern, not their CSV format.
+
+---
+
+## 6. Data and licensing rules
+
+- Only public, de-identified data: TCGA open access via the GDC (portal.gdc.cancer.gov / `api.gdc.cancer.gov`), plus published ABSOLUTE purity calls. **NEVER** use controlled-access data.
+- **NEVER** paste or upload slide images, thumbnails, tiles or patient-level rows into an LLM chat or API (including Lumen). Visual checks (tiling thumbnails, heatmaps, hand-labeled tiles) are done by a human.
+- **NEVER** copy CONCH weights to a shared location or into the repo. The license requires each person to register individually.
+- Record every model, dataset and tool used, with its citation, in `README.md` § Credits.
+
+---
+
+## 7. Tests
+
+- Run the fast suite with `python -m pytest -m "not gpu and not delta"`. It MUST pass with no GPU, no network and no real slides (use synthetic arrays and tiny fixture files in `tests/fixtures/`), and finish in under 60 s.
+- Mark tests that need CONCH/GPU `@pytest.mark.gpu`, and tests that need real data on Delta `@pytest.mark.delta`. These run only inside a Slurm job.
+- Register both markers in `pytest.ini` / `pyproject.toml` so unknown markers error.
+- Every metric and statistical function gets a hand-calculated test case with the expected number written in the test.
+
+---
+
+## 8. Phases and required tests
+
+Each phase lists what to build and the tests that MUST exist and pass before moving on.
+
+**Phase 0: Setup**
+- Build: `src/`, `tests/`, `config.yaml`, `pytest.ini`, `.gitignore`.
+- Tests: one trivial test passes. Inside a GPU job (`@gpu`): CONCH loads and embeds one tile to shape `[1, 512]`.
+
+**Phase 1: Labels → `labels.csv`**
+- Build: download pathologist % and ABSOLUTE purity, join on `sample_id`, assign splits by hospital.
+- Tests:
+  - `slide_id` unique; every `sample_id` matches the regex in §4.
+  - All `pathologist_pct` and `truth_pct` are in [0, 100], and median `truth_pct` > 1 (catches a missed fraction→percent conversion).
+  - No missing values in required columns.
+  - **No `hospital` appears in more than one split.** Most important test in the project.
+  - Test split has ≥ `min_test_slides` (config) slides and ≥ `min_test_below_cutoff` slides with `truth_pct` < 60.
+- Then compute the pathologist baseline (MAE, Pearson r, catch rate) on the test split and save it to `results/baseline.json`. The model must beat it.
+
+**Phase 2: Tiling**
+- Build: 256×256 tiles; drop tiles below `tissue_threshold` (config).
+- Tests: every tile lies fully inside slide bounds; synthetic all-white tile scores ≈ 0 tissue and synthetic H&E-pink tile scores high; each slide yields > 0 tiles.
+- Also write one thumbnail per slide with kept tiles outlined to `<data_root>/qc/tiling/`, and ask the human to look at them before Phase 3.
+
+**Phase 3: Embeddings (GPU)**
+- Tests: `feats.shape[0] == coords.shape[0]`; no NaN/inf; the same tile embedded twice gives identical output (`atol=1e-5`; failure means not in eval mode); different tiles give different rows.
+- Run on 5 slides, check them, show the human the results, and only then submit the full batch. **NEVER** submit the full batch without that sign-off.
+
+**Phase 4: Model**
+- Build: ridge regression from slide features (share of tumor tiles + mean embedding) to `truth_pct`. Tune alpha on train hospitals only (grouped CV by hospital).
+- Tests: no test slide or test hospital in training data; model MAE < dummy (training mean) MAE; with shuffled training labels, MAE is within the dummy's range; predictions clipped to [0, 100]; same seed → identical predictions.
+
+**Phase 5: Evaluation**
+- Tests: MAE, Pearson r and catch rate each match a hand-computed example.
+- Bootstrap: resample test slides 1,000 times (seeded); compute pathologist MAE − model MAE each time. Say "better" only if the 95% percentile interval excludes 0; otherwise say "comparable". Report the interval with the claim.
+
+**Phase 6: Heatmaps**
+- Build: CONCH zero-shot tumor vs. not-tumor per tile, drawn over the slide thumbnail. Prompts live in config.
+- Tests: per-tile probabilities sum to 1 (`atol=1e-6`); a unit test places a value at tile (x, y) and asserts it lands at `array[y, x]`; human hand-labels ~20 obvious tiles and zero-shot agreement must beat chance clearly (report the number).
+
+**MVP gate**
+- `python -m purity.run --config config.yaml --limit 3` runs from scratch on 3 slides.
+- A format check validates every output file (columns, dtypes, units in §4).
+
+**After MVP: conformal intervals**
+- Split conformal at 90%, calibrated on the `cal` split (training hospitals, never test).
+- Decision rule: `OK` if low ≥ 60; `resample` if high < 60; `uncertain` otherwise.
+- Tests: on synthetic data with known noise (≥ 5,000 points, seeded), coverage within 90% ± 3%; low ≤ prediction ≤ high for every slide; hand-made cases above, at and below 60 get the right decision. Report real coverage on test hospitals.
+
+---
+
+## 9. Reporting results
+
+- Every number reported says which split, how many slides, and the bootstrap interval where one exists.
+- Model and pathologist are always compared on exactly the same slides.
+- Write results to `results/*.json` from code. **NEVER** type numbers into docs or slides by hand.
+
+## 10. Help
+
+Delta, Slurm, OnDemand, Lumen problems: #compute-issues on Slack. Agents: report the exact error and command to the human; don't retry failing GPU jobs in a loop.
