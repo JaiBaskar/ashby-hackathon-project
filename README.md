@@ -25,12 +25,52 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 
 All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 
+## TCGA validation (Phase 8)
+
+Does the app's whole-slide tumor % (`slide_composition.tumor` × 100, real CONCH) track ABSOLUTE purity better than the pathologist's recorded %? Code: `backend/project/tcga.py`, `labels.py`, `gdc.py`; settings under `tcga:` in `config.yaml`. It uses TCGA-LUAD frozen slides (TS/BS), because that's where the pathologist's % was recorded, and splits by hospital (tissue source site), never by slide.
+
+On Delta, from the repo root. Commands marked **approval** spend GPU hours or download a lot: a human approves each one first.
+
+```bash
+# Once, on the login node
+module load pytorch-conda/2.8; unset PYTHONNOUSERSITE
+export HF_HOME=/work/nvme/bfqi/$USER/hf TCGA_DIR=/work/nvme/bfqi/$USER/tcga
+pip install --user -r backend/requirements.txt          # plus CONCH: see backend/requirements-real.txt
+hf auth login                                           # your own CONCH-approved account
+hf download MahmoodLab/CONCH                            # approval (> 1 GB); download only, never load it here
+
+# 1. labels.csv (login node, small downloads): GDC metadata + the ABSOLUTE table, split and checked
+cd backend && python -m project.tcga labels && cd ..
+python -m pytest backend -m delta -v                   # the Phase 1 checks on the real labels
+
+# 2. slides (login node): prints the size first; re-run with --yes once approved
+cd backend && python -m project.tcga download && cd ..
+cd backend && python -m project.tcga download --yes && cd ..          # approval (tens of GB)
+
+# 3. CONCH (GPU): saves each slide's tile embeddings once and scores them with the lung prompts.
+#    5 slides first, then train only, check, then test. Resumable.
+mkdir -p logs && sbatch scripts/tcga_score.sbatch --limit 5           # approval
+sbatch scripts/tcga_score.sbatch --split train                        # approval, after checking the 5
+tail -n 50 logs/<jobid>.out
+cd backend && python -m project.tcga check --split train && cd ..     # app vs. pathologist on train only
+sbatch scripts/tcga_score.sbatch --split test                         # approval, once the method is fixed
+#    After a prompt change: re-score from the saved embeddings on CPU (no GPU hours)
+sbatch scripts/tcga_rescore.sbatch                                    # approval
+
+# 4. the comparison (CPU, seconds): writes results/tcga_validation.json
+cd backend && python -m project.tcga evaluate
+```
+
+`results/tcga_validation_<prompt_set>.json` reports, on the test hospitals only: slide and hospital counts, MAE, Pearson r and the catch rate below 60% for the pathologist, the raw app % and the app % after a straight-line mapping fit on the train hospitals; and a 1,000-resample bootstrap of (pathologist MAE − app MAE) with its 95% interval. The app is called "better" only if that interval is entirely above 0. `check` never looks at the test split: any change to the method (e.g. the prompts) is judged on train hospitals only, so the test result stays honest. `labels.csv`, the slides, tile embeddings and per-slide scores (`app_scores_<prompt_set>.csv`, one file per prompt set) stay in `$TCGA_DIR` and are never committed.
+
 ## Credits
 
 - **CONCH**: Lu, M.Y. et al. *A visual-language foundation model for computational pathology.* Nature Medicine 30, 863–874 (2024). Weights: `MahmoodLab/CONCH` on Hugging Face (gated; each user needs their own access).
 - **CRC-VAL-HE-7K** (tile set for the accuracy check): Kather, J.N. et al. *Predicting survival from colorectal cancer histology slides using deep learning: a retrospective multicenter study.* PLOS Medicine 16(1): e1002730 (2019). Zenodo record 1214456.
+- **TCGA** (slides and pathologist %): The Cancer Genome Atlas Research Network, via the NCI Genomic Data Commons (open access). LUAD: *Comprehensive molecular profiling of lung adenocarcinoma.* Nature 511, 543–550 (2014).
+- **ABSOLUTE** purity calls: Carter, S.L. et al. *Absolute quantification of somatic DNA alterations in human cancer.* Nature Biotechnology 30, 413–421 (2012); PanCanAtlas table from Taylor, A.M. et al. *Genomic and functional approaches to understanding cancer aneuploidy.* Cancer Cell 33, 676–689 (2018).
 - **BCSS** (breast regions for the second accuracy check): Amgad, M. et al. *Structured crowdsourcing enables convolutional segmentation of histology images.* Bioinformatics 35(18): 3461–3467 (2019). CC0 1.0; seeded subset fetched from the Hugging Face mirror `nabil-m/bcss` by `scripts/get_bcss.py`.
 - **OpenSlide**: Goode, A. et al. *OpenSlide: A vendor-neutral software foundation for digital pathology.* J Pathol Inform 4:27 (2013).
 - **Fonts**: Newsreader (Production Type) and IBM Plex Sans (IBM), both SIL Open Font License 1.1, bundled through the Fontsource packages.
 - **Tiger Cloud** (managed PostgreSQL/TimescaleDB) for request history, via psycopg 3.
-- Pillow, NumPy, PyYAML, tifffile, pytest, PyTorch, FastAPI, psycopg; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.
+- Pillow, NumPy, pandas, PyYAML, tifffile, pytest, PyTorch, FastAPI, psycopg; Next.js, React, TypeScript, Tailwind CSS, Vitest, Testing Library, Playwright.

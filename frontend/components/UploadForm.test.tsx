@@ -83,3 +83,28 @@ test("shows the server's message when the upload is refused", async () => {
   expect(await screen.findByRole('alert')).toHaveTextContent('This image could not be read.')
   expect(push).not.toHaveBeenCalled()
 })
+
+test('offers the organs from config.yaml, defaulting to the config default', () => {
+  render(<UploadForm />)
+  const select = screen.getByLabelText(/organ/i) as HTMLSelectElement
+  expect([...select.options].map((o) => o.value)).toEqual(process.env.ORGANS!.split(','))
+  expect([...select.options].map((o) => o.textContent)).toEqual([
+    'Colon / rectum',
+    'Lung',
+    'Breast',
+    'Pancreas',
+    'Prostate',
+    'Other / unknown',
+  ])
+  expect(select).toHaveValue(process.env.DEFAULT_ORGAN)
+})
+
+test('sends the chosen organ with the upload', async () => {
+  fetchMock.mockResolvedValue(jsonResponse({ job_id: 'abc' }))
+  render(<UploadForm />)
+  await userEvent.upload(screen.getByLabelText(/choose an image/i), png())
+  await userEvent.selectOptions(screen.getByLabelText(/organ/i), 'lung')
+  await userEvent.click(screen.getByRole('button', { name: 'Analyze slide' }))
+  await waitFor(() => expect(push).toHaveBeenCalledWith('/jobs/abc'))
+  expect((fetchMock.mock.calls[0][1].body as FormData).get('organ')).toBe('lung')
+})

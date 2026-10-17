@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, type MeasuredBox, type RegionsAtSize, type Result } from '@/lib/api'
-import { boxLabel, pct } from '@/lib/format'
+import { boxLabel, organLabel, pct } from '@/lib/format'
 import type { Rect } from './FreeBox'
 import FreeBoxPanel from './FreeBoxPanel'
 import RegionPanel from './RegionPanel'
@@ -181,7 +181,7 @@ export default function Results({
           <p className="mt-1 text-ink-muted">
             {n} {n === 1 ? 'region' : 'regions'}, ranked by tumor content, necrosis and evenness ·{' '}
             <span className="tabular-nums">{result.tiles.count}</span> tiles analyzed
-            {result.tiles.capped ? ' (sampled evenly)' : ''}
+            {result.tiles.capped ? ' (sampled evenly)' : ''}{result.organ ? ` · Organ: ${organLabel(result.organ)}` : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

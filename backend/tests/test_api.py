@@ -165,6 +165,47 @@ def test_app_refuses_to_start_without_conch_token(cfg, monkeypatch):
         create_app(cfg)
 
 
+# --- organ ----------------------------------------------------------------------------------------
+
+def upload_with_organ(client, organ):
+    return client.post("/api/jobs", files={"file": ("slide.png", png_bytes(he_slide(1024, 1024)), "image/png")},
+                       data={"organ": organ})
+
+
+def test_organ_reaches_the_result(client):
+    job_id = upload_with_organ(client, "lung").json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert body["result"]["organ"] == "lung"
+
+
+def test_organ_defaults_to_config(client, cfg):
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert body["result"]["organ"] == cfg["default_organ"]
+
+
+def test_unknown_organ_is_400(client):
+    r = upload_with_organ(client, "spleen")
+    assert r.status_code == 400
+    assert "organ" in r.json()["detail"].lower()
+
+
+def test_organ_is_passed_to_the_model(cfg, monkeypatch):
+    from project.model import FakeBackend
+
+    seen = []
+    original = FakeBackend.classify
+
+    def spy(self, embeddings, organ=None):
+        seen.append(organ)
+        return original(self, embeddings, organ)
+
+    monkeypatch.setattr(FakeBackend, "classify", spy)
+    client = TestClient(create_app(cfg))
+    poll(client, upload_with_organ(client, "prostate").json()["job_id"])
+    assert seen and set(seen) == {"prostate"}
+
+
 # --- request history (store) ----------------------------------------------------------------------
 
 def test_jobs_list_is_newest_first_with_created_at_and_cancer_type(client):
@@ -254,7 +295,7 @@ def test_result_reports_the_box_size_and_the_sizes_on_offer(client, cfg):
 def test_regions_at_another_box_size_reuse_the_tile_scores(cfg, monkeypatch):
     calls = []
     original = FakeBackend.predict
-    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles: calls.append(len(tiles)) or original(self, tiles))
+    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles, organ=None: calls.append(len(tiles)) or original(self, tiles, organ))
     client = TestClient(create_app(cfg))
     job_id = upload(client, png_bytes(he_slide(4096, 3072))).json()["job_id"]
     result = poll(client, job_id)[0]["result"]
@@ -314,7 +355,7 @@ def test_regions_before_the_job_is_done_is_409(cfg):
 def test_measure_any_box_on_a_finished_job(cfg, monkeypatch):
     calls = []
     original = FakeBackend.predict
-    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles: calls.append(len(tiles)) or original(self, tiles))
+    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles, organ=None: calls.append(len(tiles)) or original(self, tiles, organ))
     client = TestClient(create_app(cfg))
     job_id = upload(client, png_bytes(he_slide(4096, 3072))).json()["job_id"]
     result = poll(client, job_id)[0]["result"]

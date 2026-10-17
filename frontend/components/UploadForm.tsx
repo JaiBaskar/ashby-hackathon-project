@@ -3,7 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { useEffect, useId, useState } from 'react'
 import { errorMessage } from '@/lib/api'
-import { ACCEPTED_EXTENSIONS, fileExtension, settings } from '@/lib/format'
+import { ACCEPTED_EXTENSIONS, fileExtension, organLabel, settings } from '@/lib/format'
 import { button } from './ui'
 
 const PREVIEWABLE = ['.png', '.jpg', '.jpeg']
@@ -22,10 +22,11 @@ function problemWith(file: File): string | null {
 
 export default function UploadForm() {
   const router = useRouter()
-  const ids = { file: useId(), scale: useId(), hint: useId() }
+  const ids = { file: useId(), scale: useId(), hint: useId(), organ: useId(), organHint: useId() }
   const [file, setFile] = useState<File | null>(null)
   const [preview, setPreview] = useState<string | null>(null)
   const [mpp, setMpp] = useState(String(settings.defaultMpp))
+  const [organ, setOrgan] = useState(settings.defaultOrgan)
   const [error, setError] = useState<string | null>(null)
   const [dragging, setDragging] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -51,6 +52,7 @@ export default function UploadForm() {
     const body = new FormData()
     body.append('file', file)
     if (scale) body.append('mpp', scale)
+    body.append('organ', organ)
     setSubmitting(true)
     setError(null)
     try {
@@ -122,6 +124,29 @@ export default function UploadForm() {
             e.target.value = ''
           }}
         />
+      </div>
+
+      <div className="max-w-sm">
+        <label htmlFor={ids.organ} className="block font-semibold">
+          Organ
+        </label>
+        <p id={ids.organHint} className="mt-1 text-sm text-ink-muted">
+          Where the sample came from. CONCH compares each tile with descriptions of that organ&apos;s tumor and normal
+          tissue, which tells them apart much better than generic wording.
+        </p>
+        <select
+          id={ids.organ}
+          value={organ}
+          onChange={(e) => setOrgan(e.target.value)}
+          aria-describedby={ids.organHint}
+          className="mt-3 h-11 w-56 rounded-md border border-line-strong bg-surface px-3 text-base text-ink"
+        >
+          {settings.organs.map((o) => (
+            <option key={o} value={o}>
+              {organLabel(o)}
+            </option>
+          ))}
+        </select>
       </div>
 
       <div className="max-w-sm">

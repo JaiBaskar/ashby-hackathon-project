@@ -200,3 +200,11 @@ describe('box size', () => {
     expect(boxes()).toHaveLength(2)
   })
 })
+
+test('names the organ the prompts were chosen for, when the result has one', () => {
+  const { unmount } = render(<Results result={makeResult({ organ: 'pancreas' })} />)
+  expect(screen.getByText(/organ: pancreas/i)).toBeInTheDocument()
+  unmount()
+  render(<Results result={makeResult({ organ: undefined })} />)   // recorded before the organ picker
+  expect(screen.queryByText(/organ:/i)).not.toBeInTheDocument()
+})

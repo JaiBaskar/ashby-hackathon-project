@@ -1,0 +1,27 @@
+{
+  "dataset": "CRC-VAL-HE-7K mosaics, 6x6 tiles, BACK excluded",
+  "seed": 1234,
+  "rows": [
+    {
+      "true_tumor_share_pct": 11.11111111111111,
+      "pipeline_tumor_pct": 0.03,
+      "direct_tumor_pct": 0.02,
+      "tiles_called_tumor_pct": 0.0,
+      "n_tiles": 29
+    },
+    {
+      "true_tumor_share_pct": 50.0,
+      "pipeline_tumor_pct": 2.49,
+      "direct_tumor_pct": 1.93,
+      "tiles_called_tumor_pct": 2.78,
+      "n_tiles": 28
+    },
+    {
+      "true_tumor_share_pct": 88.88888888888889,
+      "pipeline_tumor_pct": 0.83,
+      "direct_tumor_pct": 0.79,
+      "tiles_called_tumor_pct": 0.0,
+      "n_tiles": 34
+    }
+  ]
+}

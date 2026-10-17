@@ -30,7 +30,21 @@ export function fileExtension(name: string): string {
 export const settings = {
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB),
   defaultMpp: Number(process.env.DEFAULT_MPP),
+  organs: (process.env.ORGANS ?? '').split(',').filter(Boolean),
+  defaultOrgan: process.env.DEFAULT_ORGAN ?? '',
 }
+
+// Display names for config.yaml's organs. The backend picks that organ's CONCH prompts.
+export const ORGAN_LABELS: Record<string, string> = {
+  colon: 'Colon / rectum',
+  lung: 'Lung',
+  breast: 'Breast',
+  pancreas: 'Pancreas',
+  prostate: 'Prostate',
+  other: 'Other / unknown',
+}
+
+export const organLabel = (organ: string) => ORGAN_LABELS[organ] ?? organ
 
 // Box sizes come in µm (multiples of the 128 µm tile); people pick punches in mm. 512 µm reads as "0.5 mm".
 export const boxLabel = (um: number) => `${Number((um / 1000).toFixed(1))} mm`

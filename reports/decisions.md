@@ -149,3 +149,48 @@ One line each: decision + reason.
 - The free box is dashed (the suggestions are solid), with the same black outer outline, so it's distinguishable without color and keeps contrast on both stains.
 - jsdom has no `PointerEvent`; `vitest.setup.ts` adds a small MouseEvent-based stand-in for the drag tests.
 - The image scale (µm/px) is saved with the tile scores in `ranking.npz`, so a free box still gets its size in µm after a restart; files saved before this fall back to `default_mpp`.
+
+## Phase 8 (TCGA validation): code
+- Project TCGA-LUAD, frozen slides (TS/BS) only: a schema-only probe of the GDC showed `percent_tumor_cells` is recorded on TS/BS slides and essentially never on DX slides (BRCA 1 of 1,133; LUAD 0 of 541), so the comparison uses the slides the pathologist actually read (AGENTS.md §4). LUAD has 718 such slides with an ABSOLUTE call, ~125 MB median each.
+- ABSOLUTE: PanCanAtlas `TCGA_mastercalls.abs_tables_JSedit.fixed.txt` (GDC data id 4f277128-…). Only `call status == called`; sample_id = first 16 chars of the aliquot barcode in `sample` (9,991 of 10,786 rows match the §4 regex; the rest are non-TCGA-format names). A sample with two calls is dropped as ambiguous (none in the current file). Fraction → percent happens only in `labels.read_absolute`.
+- slide_id = GDC file stem (`<slide barcode>.<uuid>`), unique by construction; the pathologist % is taken from the slide record whose barcode matches that file.
+- Samples with several slides keep one row per slide (AGENTS.md §4); the labels step prints how many have differing percentages (173 samples in LUAD) instead of listing them.
+- Splits: hospitals shuffled with the config seed, filling test (30%), then cal (10%), then train. LUAD result: test 261 slides / 17 hospitals, train 378 / 15, cal 79 / 1 (one large site). `check_labels` enforces every §8 Phase 1 rule and passed on the real table.
+- Downloads are capped per split (`max_slides`: train 100, test 150, cal 0; seeded sample): ~65 GB in total, under the ~200 GB ask-first line. Cal isn't scored, since conformal intervals aren't part of this step.
+- The app's raw tumor % is a mean softmax probability, not a cell fraction, so the evaluation also reports a straight-line mapping fit on train hospitals only (a test checks that changing test truth leaves the fit unchanged). Pearson r is the same for both; MAE and catch rate differ.
+- Verdict from the bootstrap of (pathologist MAE − app MAE): "better" if the 95% interval is above 0, "worse" if below 0, otherwise "comparable" (AGENTS.md §8 Phase 5 names only better/comparable; "worse" is added so a clear loss isn't reported as "comparable").
+- `pearson_r` returns NaN for a constant input instead of dividing by zero.
+- `evaluate` refuses scores from the demo model unless `--allow-fake` (pipeline checks only), so fake numbers can't land in `results/tcga_validation.json` by accident.
+- `TCGA_DIR` overrides `paths.tcga_dir`, so Delta jobs use `/work/nvme/bfqi/$USER/tcga` without editing config.yaml. labels.csv, slides and per-slide scores never leave it; only aggregate counts (`results/tcga_labels_summary.json`) and metrics are committed.
+- Scoring is resumable (appends one row per slide to app_scores.csv; a failed slide records its error and is left out), so a timed-out job can be resubmitted. Per AGENTS.md §8 Phase 3, the first job is `--limit 5`.
+- Smoke test: `score --model fake` and `evaluate --allow-fake` ran end to end on 6 synthetic tiled TIFFs saved as .svs in a scratch TCGA_DIR; the second `score` run skipped all 6.
+- Frontend tests on this PC needed `npm ci` again (teammates added `@testing-library/user-event`); then 64/64 passed.
+
+## Phase 8: first CONCH run and a train-first check
+- 5-slide GPU check (job 22955904): all ok, ~30 s per slide (12–38 s), model conch, scanner mpp 0.5, 627–2,000 tiles. The whole-slide tumor % was 1.5–6.1% on all five, far below typical LUAD purity, and necrosis was high on two (19%, 48%). Likely causes: frozen-section look (CONCH and the CRC check are FFPE) and generic prompts.
+- So scoring goes train first: `score --split train`, then `check --split train` prints aggregate app vs. pathologist numbers (Pearson r, MAE, ranges) on train hospitals only and writes `results/tcga_check_train_<prompt_set>.json`. `check` refuses the test split: any prompt change is judged on train only, and test is scored and evaluated once, after the method is fixed.
+- Python 3.11 on Delta (pytorch-conda/2.8): nested same-quote f-strings are 3.12-only, so one was rewritten; a tokenizer scan found no others in backend/.
+
+## Prompt set v3: organ-aware prompts (after the 5-slide TCGA run)
+(Written as "v2" on the phase8/tcga branch; renamed v3 when merged with main, whose v2 is the organ-neutral set above. Figures below are unchanged.)
+- Diagnosis: with prompt set v1, CONCH almost never made "tumor" the top class. A mosaic .svs of 89% CRC tumor tiles scored 0.8% tumor, and on 60 held-out TUM dev tiles tumor won 3 times (29 went to "normal"). Tumor still ranked above other tissue (AUROC 0.92), which is why the v1 AUROC test passed. Not a code bug: a new test shows the slide-reading path (OpenSlide → tiles → CONCH) gives exactly the scores of the same tiles scored directly (fake model and real CONCH).
+- Fix: organ-aware prompts. `organs: [colon, lung, breast, pancreas, prostate, other]`; each organ overrides the generic tumor and normal prompts with that organ's cancer and normal tissue; "other" uses the generic set. This mirrors how CONCH's authors ran zero-shot classification (organ and cancer named in the prompt).
+- Choice made on a CRC dev sample (60 tiles per class, seeded, the 200 AUROC tiles excluded), never on the AUROC tiles or TCGA test: `scripts/prompt_dev/`, results in `results/prompt_dev_crc.json`. Colon `colon_d`: TUM tiles called tumor 5% → 50%, tumor calls 97% correct, mean per-class accuracy 0.71 → 0.85. Generic `generic_a`: tumor 5% → 35%, no false tumor calls, but other classes drop (0.71 → 0.62); kept because the app's job is finding tumor. Two rounds of candidates only, to limit fitting to the dev tiles.
+- Lung, breast, pancreas and prostate prompts follow the colon pattern and are untested on tile data; lung is checked on the TCGA train split. 
+- Held-out check (organ-aware set): AUROC 0.926 colon / 0.934 generic on the 200 AUROC tiles (v1: 0.923). Mosaic slides with 11/50/89% tumor tiles now score 6.3/21.6/42.7% (v1: 0.03/2.5/0.8%), and the new realmodel test (more tumor → higher %, by > 20 points) passes.
+- Test fix: the mosaic test first compared the pipeline (which skips non-tissue tiles) with all 36 cells; it now compares on the cells the pipeline kept, and they match exactly. The 1-point tolerance is unchanged.
+- Backends split into `embed` and `classify(embeddings, organ)`; `predict = classify(embed)`. CONCH text embeddings are computed once per organ at startup. An unknown organ is a ValueError (API: 400 before the upload is saved).
+- API: optional `organ` form field (default `default_organ`), passed to the model and returned as `result.organ`. Frontend: "Organ" select on the upload screen (options and default from config.yaml through next.config `env`, labels in `lib/format.ts`), and "Organ: …" on the results screen.
+- TCGA: `tcga.organ: lung`. The GPU job now saves each slide's tile embeddings (`$TCGA_DIR/embeddings/<slide_id>.npz`: feats float32 [N, 512], coords int64 (x, y), model, plus tiling metadata), and scores go to `app_scores_<prompt_set>.csv`, so v1 and v2 never mix. `score --embeddings-only` re-scores saved embeddings with new prompts; `scripts/tcga_rescore.sbatch` runs it on the CPU account. The old v1 `app_scores.csv` (5 slides) is ignored.
+- Results files are per prompt set (`conch_auroc_<set>`, `conch_pipeline_check_<set>`, `tcga_check_<split>_<set>`, `tcga_validation_<set>`), so v1 and v2 numbers can be reported side by side.
+- Not run on this PC: the Playwright end-to-end suite (its browsers aren't installed here). The organ select defaults to "other", so the existing flows send the same request plus `organ=other`.
+
+## Merge of phase8/tcga with main (organ prompts + prompt sets)
+- main's named `prompt_sets` structure is kept. A prompt set may now carry an optional `organs:` block of per-organ tumor/normal overrides; `with_prompt_set` exposes it as `cfg["organ_prompts"]` next to `cfg["prompts"]`.
+- `v3` = main's `v2` (unchanged, the generic base for "other") + the organ overrides from phase8/tcga, written with a YAML anchor so the two can't drift. `prompt_set: v3`.
+- Why both: on the CRC dev tiles (`scripts/prompt_dev/`), main's v2 calls 17% of tumor tiles tumor and 18% of normal tiles normal; the colon overrides give 50% and 98%. v2 stays the generic set because it was frozen before the BCSS check and passes it.
+- Since v2's stroma/immune/necrosis/fat prompts equal the ones the colon overrides were tested with, v3-colon is exactly the tested `colon_d` set.
+- The real-model AUROC test now scores each dataset with its organ's prompts (CRC → colon, BCSS → breast) for v2 and v3, and records the generic-prompt AUROC alongside. The bar stays 0.8.
+- main's box-size tests stubbed `FakeBackend.predict(self, tiles)`; the pipeline now passes `organ=`, so the stubs accept and forward it. main's prompt-set tests skip a set's `organs` key when comparing it with the class list.
+- `Result.organ` is optional (null for jobs recorded in the history store before the organ picker); the results screen shows "Organ: …" only when it's set. `cancer_type` (main) is separate: a future predicted type, still null.
+- For e2e specs, Playwright config and screenshots, both branches had added their own copies; main's newer versions were kept.
