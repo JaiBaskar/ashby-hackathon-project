@@ -47,3 +47,15 @@ One line each: decision + reason.
 - `frontend/AGENTS.md` is written by `next dev` (verified in `next/dist/server/lib/generate-agent-files.js`) and committed, so it doesn't keep showing up as a change.
 - Planned App Router layout for Phase 6: `/`, `/upload`, `/jobs/[id]`. Each job gets a URL that survives a reload.
 - In this agent's sandbox, Python processes can't accept local connections, though Node can (the macOS firewall is off). So the upload check used a Node stand-in for FastAPI. FastAPI's own tests (Phase 4) use the in-process TestClient.
+
+## Phase 3
+- Windows dev machine: Python 3.12.10 and Node 24.20.0 (LTS) installed with winget, at the user's request. There's no `make`, so the suite ran as `.venv/Scripts/python -m pytest backend -m "not realmodel and not gpu and not delta"` and `npm test` (the Makefile's `.venv/bin/python` path is Mac/Linux only).
+- `rank_regions` takes the full `[rows, cols, classes]` score grid (NaN for tiles dropped by the `max_tiles` cap) and the tissue grid. A region's composition, score and tumor std use its analyzed tiles; coverage uses every tile's tissue fraction.
+- Tumor std is the population std (ddof=0) across the region's tiles, matching the hand-computed test.
+- Candidates tie-break on (row, col) after score, so equal scores always give the same order.
+- Rank 1 always gets "Highest overall score of all candidates (0.79)": true by construction, so the best region never shows an empty reason list.
+- "Highest tumor content" is checked against every eligible window, not just the 5 picked, as the brief says.
+- Ranks 2–5 compare tumor with the best region using the rounded percentages shown, so the quoted gap always matches the two numbers on screen. When a lower-ranked region has more tumor, the reason says so and names necrosis or unevenness as the cause.
+- `size_um` = N × `tile_px` × `target_mpp` always (scale is never unknown: photos fall back to `default_mpp` and are marked estimated).
+- Heatmap: one tint (`HEATMAP_RGB`), opacity = tumor × 0.85; unanalyzed tiles are transparent. Drawn at tile resolution and scaled up with nearest-neighbour, so each tile is a crisp block.
+- Test fixture fix: the overlap/coverage test drew tissue from U(0.6, 1.0), so no window could reach `min_coverage` 0.9. Changed to U(0.8, 1.0): 203 of 441 windows are eligible, so the filter is exercised. The 0.9 threshold didn't move.
