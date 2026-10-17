@@ -195,7 +195,7 @@ Every reason is built from the region's own numbers and quotes them. Emit a reas
 - A FastAPI app with an in-memory job store and a background worker per job. Reuse the Pydantic models as response models. Check the type and decode the file during upload (400 right away), and check the size while reading it (413). Run the Phase 2 startup check when the app starts.
 
 ### Phase 5: Design system
-Read `~/.claude/skills/frontend/ui-design/SKILL.md` first. No skill named "frontend-design" is installed, and this is the closest. (The agent files in `.claude/agents/` point to `~/.claude/skills/general/…`, which doesn't exist.)
+Read `.claude/skills/frontend/ui-design/SKILL.md` first. No skill named "frontend-design" is installed, and this is the closest. (The agent files in `.claude/agents/` point to `~/.claude/skills/general/…`, which doesn't exist; use the repo paths here.)
 
 **Tests first:** a Vitest unit test that computes the box contrast ratios from the tokens and fails below 3:1, plus a hand-computed check (black on white = 21:1).
 
@@ -209,7 +209,7 @@ Read `~/.claude/skills/frontend/ui-design/SKILL.md` first. No skill named "front
 **Do the contrast math before picking colors.** Pink's relative luminance is about 0.540 and purple's about 0.106. A single solid color reaches 3:1 against both only if its luminance is ≤ 0.002, which means near-black: `#000000` gets 3.13:1 on purple, and `#0A0A0A` already fails at 2.95:1. So two distinguishable one-color box styles can't both pass. Draw each box as two strokes: a black outer outline and a colored inner stroke (the accent for the best box, a light neutral for the others). The test checks, for each box style and each tissue color, that at least one stroke layer reaches 3:1. Log this in `decisions.md` and explain it in `final.md`. It changes how the test reads the requirement, not the 3:1 bar.
 
 ### Phase 6: Frontend screens
-Read `~/.claude/skills/frontend/ux-thinking/SKILL.md` first (states, errors, copy).
+Read `.claude/skills/frontend/ux-thinking/SKILL.md` first (states, errors, copy).
 
 **Tests first** (Vitest + React Testing Library, mocked API)
 - Home: a clear headline, a one-line explanation, and a primary "Analyze a slide" button that opens the upload screen.
