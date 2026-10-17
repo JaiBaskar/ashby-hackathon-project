@@ -2,7 +2,7 @@
 
 # fake | conch. conch needs a Hugging Face token (HF_TOKEN or `hf auth login`) from an account
 # that accepted the CONCH license. The server never falls back to fake on its own.
-model: fake
+model: conch
 seed: 1234
 
 # Zero-shot tissue classes, in output column order. Each class's score uses the mean of its prompts.
