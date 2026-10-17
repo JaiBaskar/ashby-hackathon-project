@@ -8,7 +8,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 REQUIRED_KEYS = [
-    "model", "seed", "classes", "prompt_set", "prompts",
+    "model", "seed", "classes", "organs", "default_organ", "prompt_set", "prompts", "organ_prompts",
     "tile_px", "target_mpp", "default_mpp", "max_display_px", "max_upload_mb", "max_tiles",
     "tissue_min_saturation", "tissue_threshold", "batch_size",
     "region_tiles", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths", "tcga",

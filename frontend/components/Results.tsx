@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import type { Result } from '@/lib/api'
+import { organLabel } from '@/lib/format'
 import RegionPanel from './RegionPanel'
 import SlideViewer from './SlideViewer'
 import { button, DemoBadge, ResearchNotice } from './ui'
@@ -24,7 +25,7 @@ export default function Results({ result }: { result: Result }) {
           <p className="mt-1 text-ink-muted">
             {n} {n === 1 ? 'region' : 'regions'}, ranked by tumor content, necrosis and evenness ·{' '}
             <span className="tabular-nums">{result.tiles.count}</span> tiles analyzed
-            {result.tiles.capped ? ' (sampled evenly)' : ''}
+            {result.tiles.capped ? ' (sampled evenly)' : ''} · Organ: {organLabel(result.organ)}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

@@ -123,3 +123,8 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
+
+test('names the organ the prompts were chosen for', () => {
+  render(<Results result={makeResult({ organ: 'pancreas' })} />)
+  expect(screen.getByText(/organ: pancreas/i)).toBeInTheDocument()
+})

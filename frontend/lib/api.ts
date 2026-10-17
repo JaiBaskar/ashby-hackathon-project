@@ -24,6 +24,7 @@ export interface Region {
 
 export interface Result {
   model: string
+  organ: string
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
   tiles: { count: number; capped: boolean }

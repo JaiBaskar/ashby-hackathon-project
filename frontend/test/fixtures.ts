@@ -26,6 +26,7 @@ function region(rank: number, x: number, y: number, tumor: number, necrosis: num
 export function makeResult(overrides: Partial<Result> = {}): Result {
   return {
     model: 'fake',
+    organ: 'other',
     image: { url: '/api/jobs/abc/display.png', width: 2048, height: 1536, mpp: 0.5, mpp_estimated: false },
     heatmap_url: '/api/jobs/abc/heatmap.png',
     tiles: { count: 412, capped: false },

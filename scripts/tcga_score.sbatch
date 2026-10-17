@@ -1,6 +1,7 @@
 #!/bin/bash
-# Phase 8: score the downloaded TCGA slides with CONCH on one Delta A100. Resumable: slides already in
-# app_scores.csv are skipped, so a second job picks up where a timed-out one stopped.
+# Phase 8: CONCH on the downloaded TCGA slides, one Delta A100. Saves each slide's tile embeddings to
+# $TCGA_DIR/embeddings/ and scores them with the current prompts (app_scores_<prompt_set>.csv). Resumable:
+# scored slides are skipped, so a second job picks up where a timed-out one stopped.
 # Full steps: README.md § "TCGA validation". Submit from the repo root, after human approval (CLAUDE.md):
 #   mkdir -p logs && sbatch scripts/tcga_score.sbatch --limit 5     # first 5 slides only; check them
 #   mkdir -p logs && sbatch scripts/tcga_score.sbatch --split train # then train; `check` it

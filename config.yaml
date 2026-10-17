@@ -7,13 +7,22 @@ seed: 1234
 
 # Zero-shot tissue classes, in output column order. Each class's score uses the mean of its prompts.
 classes: [tumor, stroma, immune, necrosis, normal, fat_other]
-prompt_set: v1
+
+# Organ the sample came from, picked on the upload screen. Organ prompts name the organ's cancer and its
+# normal tissue, which CONCH separates far better than generic wording (reports/decisions.md, prompt set v2).
+# "other" uses the generic prompts below.
+organs: [colon, lung, breast, pancreas, prostate, other]
+default_organ: other
+
+prompt_set: v2
+# Generic prompts: used for "other", and for every class an organ below doesn't override.
 prompts:
   tumor:
     - an H&E image of tumor
-    - an H&E image of adenocarcinoma
     - an H&E image of carcinoma
-    - an H&E image of malignant epithelium
+    - an H&E image of invasive carcinoma
+    - an H&E image of malignant tumor cells
+    - an H&E image of cancer cells with enlarged pleomorphic nuclei
   stroma:
     - an H&E image of stroma
     - an H&E image of fibrous connective tissue
@@ -26,13 +35,73 @@ prompts:
     - an H&E image of necrosis
     - an H&E image of necrotic debris
   normal:
-    - an H&E image of normal tissue
-    - an H&E image of normal mucosa
-    - an H&E image of benign glands
+    - an H&E image of benign normal tissue
+    - an H&E image of normal tissue with orderly architecture
   fat_other:
     - an H&E image of adipose tissue
     - an H&E image of mucus
     - an H&E image of background
+
+# Per-organ overrides. Colon was chosen on CRC-VAL-HE-7K development tiles (not the AUROC tiles);
+# lung, breast, pancreas and prostate follow the same pattern and are untested until checked on data.
+organ_prompts:
+  colon:
+    tumor:
+      - an H&E image of colorectal adenocarcinoma
+      - an H&E image of colon adenocarcinoma
+      - an H&E image of invasive colorectal carcinoma
+      - an H&E image of malignant colonic glands
+      - an H&E image of colorectal cancer with crowded atypical glands
+      - an H&E image of tumor
+    normal:
+      - an H&E image of normal colonic mucosa
+      - an H&E image of normal colon mucosa with goblet cells
+      - an H&E image of benign colonic crypts
+  lung:
+    tumor:
+      - an H&E image of lung adenocarcinoma
+      - an H&E image of invasive lung adenocarcinoma
+      - an H&E image of non-small cell lung carcinoma
+      - an H&E image of lung squamous cell carcinoma
+      - an H&E image of malignant lung tumor cells with atypical nuclei
+      - an H&E image of tumor
+    normal:
+      - an H&E image of normal lung parenchyma with alveoli
+      - an H&E image of normal alveolar lung tissue
+      - an H&E image of benign bronchial epithelium
+  breast:
+    tumor:
+      - an H&E image of invasive breast carcinoma
+      - an H&E image of invasive ductal carcinoma of the breast
+      - an H&E image of invasive lobular carcinoma of the breast
+      - an H&E image of breast cancer cells with atypical nuclei
+      - an H&E image of tumor
+    normal:
+      - an H&E image of normal breast ducts and lobules
+      - an H&E image of benign breast tissue
+      - an H&E image of a normal breast lobule
+  pancreas:
+    tumor:
+      - an H&E image of pancreatic ductal adenocarcinoma
+      - an H&E image of invasive pancreatic adenocarcinoma
+      - an H&E image of malignant pancreatic ducts
+      - an H&E image of pancreatic cancer cells with atypical nuclei
+      - an H&E image of tumor
+    normal:
+      - an H&E image of normal pancreatic acinar tissue
+      - an H&E image of normal pancreas with acini and islets
+      - an H&E image of benign pancreatic ducts
+  prostate:
+    tumor:
+      - an H&E image of prostate adenocarcinoma
+      - an H&E image of prostatic adenocarcinoma
+      - an H&E image of prostate cancer with small crowded glands
+      - an H&E image of malignant prostatic glands
+      - an H&E image of tumor
+    normal:
+      - an H&E image of benign prostatic glands
+      - an H&E image of normal prostate tissue
+      - an H&E image of benign prostatic hyperplasia
 
 # Ingest and tiling
 tile_px: 256                 # tile edge in pixels at target_mpp (AGENTS.md §4, rules.md §7)
@@ -67,6 +136,7 @@ paths:
 # the pathologist's % tumor cells was recorded on them, not on the diagnostic (DX) slides.
 tcga:
   project: TCGA-LUAD
+  organ: lung              # which organ prompts score these slides
   slide_kinds: [TS, BS]
   absolute_url: https://api.gdc.cancer.gov/data/4f277128-f793-4354-a13d-30cc7fe9f6b5  # PanCanAtlas ABSOLUTE purity/ploidy
   split_fractions: {train: 0.6, cal: 0.1, test: 0.3}   # by hospital (tissue source site), never by slide

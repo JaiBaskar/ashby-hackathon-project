@@ -1,0 +1,236 @@
+{
+  "dataset": "CRC-VAL-HE-7K dev sample, 60 tiles per class, AUROC tiles excluded",
+  "n_tiles": 540,
+  "candidates": {
+    "v1": {
+      "TUM_called": {
+        "tumor": 3,
+        "stroma": 3,
+        "immune": 8,
+        "necrosis": 11,
+        "normal": 29,
+        "fat_other": 6
+      },
+      "tumor_recall": 0.05,
+      "balanced_acc": 0.707,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.06,
+      "mean_p_tumor_other": 0.0,
+      "per_class": {
+        "tumor": 0.05,
+        "stroma": 0.65,
+        "immune": 1.0,
+        "necrosis": 0.95,
+        "normal": 0.6,
+        "fat_other": 0.99
+      }
+    },
+    "generic_a": {
+      "TUM_called": {
+        "tumor": 21,
+        "stroma": 2,
+        "immune": 3,
+        "necrosis": 5,
+        "normal": 26,
+        "fat_other": 3
+      },
+      "tumor_recall": 0.35,
+      "balanced_acc": 0.621,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.382,
+      "mean_p_tumor_other": 0.004,
+      "per_class": {
+        "tumor": 0.35,
+        "stroma": 0.46,
+        "immune": 0.92,
+        "necrosis": 0.95,
+        "normal": 0.37,
+        "fat_other": 0.68
+      }
+    },
+    "generic_b": {
+      "TUM_called": {
+        "tumor": 5,
+        "stroma": 3,
+        "immune": 5,
+        "necrosis": 11,
+        "normal": 27,
+        "fat_other": 9
+      },
+      "tumor_recall": 0.083,
+      "balanced_acc": 0.707,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.114,
+      "mean_p_tumor_other": 0.001,
+      "per_class": {
+        "tumor": 0.08,
+        "stroma": 0.67,
+        "immune": 0.98,
+        "necrosis": 0.95,
+        "normal": 0.58,
+        "fat_other": 0.97
+      }
+    },
+    "generic_c": {
+      "TUM_called": {
+        "tumor": 10,
+        "stroma": 8,
+        "immune": 11,
+        "necrosis": 12,
+        "normal": 8,
+        "fat_other": 11
+      },
+      "tumor_recall": 0.167,
+      "balanced_acc": 0.668,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.141,
+      "mean_p_tumor_other": 0.0,
+      "per_class": {
+        "tumor": 0.17,
+        "stroma": 0.68,
+        "immune": 0.93,
+        "necrosis": 0.93,
+        "normal": 0.38,
+        "fat_other": 0.91
+      }
+    },
+    "colon_a": {
+      "TUM_called": {
+        "tumor": 27,
+        "stroma": 1,
+        "immune": 4,
+        "necrosis": 6,
+        "normal": 20,
+        "fat_other": 2
+      },
+      "tumor_recall": 0.45,
+      "balanced_acc": 0.836,
+      "tumor_precision": 0.931,
+      "mean_p_tumor_TUM": 0.497,
+      "mean_p_tumor_other": 0.005,
+      "per_class": {
+        "tumor": 0.45,
+        "stroma": 0.65,
+        "immune": 1.0,
+        "necrosis": 0.95,
+        "normal": 0.98,
+        "fat_other": 0.98
+      }
+    },
+    "colon_b": {
+      "TUM_called": {
+        "tumor": 24,
+        "stroma": 2,
+        "immune": 5,
+        "necrosis": 8,
+        "normal": 16,
+        "fat_other": 5
+      },
+      "tumor_recall": 0.4,
+      "balanced_acc": 0.831,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.408,
+      "mean_p_tumor_other": 0.0,
+      "per_class": {
+        "tumor": 0.4,
+        "stroma": 0.72,
+        "immune": 1.0,
+        "necrosis": 0.95,
+        "normal": 0.92,
+        "fat_other": 0.99
+      }
+    },
+    "colon_c": {
+      "TUM_called": {
+        "tumor": 2,
+        "stroma": 7,
+        "immune": 11,
+        "necrosis": 12,
+        "normal": 17,
+        "fat_other": 11
+      },
+      "tumor_recall": 0.033,
+      "balanced_acc": 0.765,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.035,
+      "mean_p_tumor_other": 0.001,
+      "per_class": {
+        "tumor": 0.03,
+        "stroma": 0.73,
+        "immune": 1.0,
+        "necrosis": 0.95,
+        "normal": 0.88,
+        "fat_other": 0.99
+      }
+    },
+    "colon_d": {
+      "TUM_called": {
+        "tumor": 30,
+        "stroma": 1,
+        "immune": 4,
+        "necrosis": 6,
+        "normal": 17,
+        "fat_other": 2
+      },
+      "tumor_recall": 0.5,
+      "balanced_acc": 0.846,
+      "tumor_precision": 0.968,
+      "mean_p_tumor_TUM": 0.487,
+      "mean_p_tumor_other": 0.003,
+      "per_class": {
+        "tumor": 0.5,
+        "stroma": 0.65,
+        "immune": 1.0,
+        "necrosis": 0.95,
+        "normal": 0.98,
+        "fat_other": 0.99
+      }
+    },
+    "colon_e": {
+      "TUM_called": {
+        "tumor": 27,
+        "stroma": 1,
+        "immune": 6,
+        "necrosis": 5,
+        "normal": 19,
+        "fat_other": 2
+      },
+      "tumor_recall": 0.45,
+      "balanced_acc": 0.847,
+      "tumor_precision": 0.931,
+      "mean_p_tumor_TUM": 0.491,
+      "mean_p_tumor_other": 0.006,
+      "per_class": {
+        "tumor": 0.45,
+        "stroma": 0.73,
+        "immune": 0.98,
+        "necrosis": 0.95,
+        "normal": 0.98,
+        "fat_other": 0.98
+      }
+    },
+    "generic_d": {
+      "TUM_called": {
+        "tumor": 6,
+        "stroma": 3,
+        "immune": 6,
+        "necrosis": 12,
+        "normal": 24,
+        "fat_other": 9
+      },
+      "tumor_recall": 0.1,
+      "balanced_acc": 0.65,
+      "tumor_precision": 1.0,
+      "mean_p_tumor_TUM": 0.138,
+      "mean_p_tumor_other": 0.001,
+      "per_class": {
+        "tumor": 0.1,
+        "stroma": 0.62,
+        "immune": 0.97,
+        "necrosis": 0.95,
+        "normal": 0.28,
+        "fat_other": 0.98
+      }
+    }
+  }
+}

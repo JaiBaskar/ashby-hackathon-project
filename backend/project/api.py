@@ -59,6 +59,7 @@ class Region(BaseModel):
 
 class Result(BaseModel):
     model: str
+    organ: str
     image: ImageInfo
     heatmap_url: str
     tiles: TileInfo
@@ -114,7 +115,7 @@ def png(image):
     return buf.getvalue()
 
 
-def run_job(job, job_id, slide, path, cfg, backend):
+def run_job(job, job_id, slide, path, cfg, backend, organ):
     try:
         job.advance("finding_tissue", 0.05)
         grid = build_grid(slide, cfg)
@@ -127,7 +128,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
         batch = cfg["batch_size"]
         parts = []
         for i in range(0, len(tiles), batch):
-            parts.append(backend.predict(read_tiles(slide, tiles[i:i + batch], cfg["tile_px"])))
+            parts.append(backend.predict(read_tiles(slide, tiles[i:i + batch], cfg["tile_px"]), organ=organ))
             job.advance("analyzing", 0.2 + 0.7 * min(1.0, (i + batch) / len(tiles)))
         probs = np.concatenate(parts)
 
@@ -138,6 +139,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
         result = Result(
             model=backend.name,
+            organ=organ,
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
@@ -194,12 +196,16 @@ def create_app(cfg=None):
         return job
 
     @app.post("/api/jobs", response_model=JobCreated)
-    def create_job(request: Request, file: UploadFile = File(...), mpp: Optional[str] = Form(None)):
+    def create_job(request: Request, file: UploadFile = File(...), mpp: Optional[str] = Form(None),
+                   organ: Optional[str] = Form(None)):
         ext = Path(file.filename or "").suffix.lower()
         if ext not in SUPPORTED_EXTENSIONS:  # before saving anything, and naming the user's file
             raise HTTPException(
                 400, f"Unsupported file type '{ext or file.filename}'. Upload a PNG, JPEG, TIFF or SVS image."
             )
+        organ = organ or cfg["default_organ"]
+        if organ not in cfg["organs"]:  # checked before the upload is saved
+            raise HTTPException(400, f"Unknown organ '{organ}'. Choose one of: {', '.join(cfg['organs'])}.")
         job_id = uuid.uuid4().hex
         path = uploads / f"{job_id}{ext}"
         max_mb = cfg["max_upload_mb"]
@@ -211,7 +217,7 @@ def create_app(cfg=None):
             raise HTTPException(400, str(e)) from e
         job = Job(backend.name)
         request.app.state.jobs[job_id] = job
-        threading.Thread(target=run_job, args=(job, job_id, slide, path, cfg, backend), daemon=True).start()
+        threading.Thread(target=run_job, args=(job, job_id, slide, path, cfg, backend, organ), daemon=True).start()
         return JobCreated(job_id=job_id)
 
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)

@@ -148,3 +148,74 @@ def test_split_check_refuses_the_test_split(cfg):
     labels, scores = labels_and_scores()
     with pytest.raises(ValueError, match="test"):
         split_check(labels, scores, "test", cutoff=60)
+
+
+# --- the slide-reading path gives the same scores as the tiles themselves -------------------------
+
+from PIL import Image
+
+from tests.synthetic import GLASS, PINK, PURPLE, save_tiled_tiff, solid
+
+
+def mosaic(cells, cols, tile_px):
+    """Paste equal-size cell images row-major into one image."""
+    rows = -(-len(cells) // cols)
+    img = Image.new("RGB", (cols * tile_px, rows * tile_px), GLASS)
+    for i, cell in enumerate(cells):
+        img.paste(cell.resize((tile_px, tile_px)), ((i % cols) * tile_px, (i // cols) * tile_px))
+    return img
+
+
+def test_scanned_slide_scores_match_scoring_its_tiles_directly(tmp_path, cfg):
+    # A .svs (tiled TIFF through OpenSlide) built from known tiles at target_mpp: every tile the pipeline
+    # cuts should be exactly one cell, so the slide's tumor % equals the mean over the cells scored directly.
+    tile_px = cfg["tile_px"]
+    colors = [PURPLE, PINK, (150, 100, 170), (200, 120, 160), (120, 80, 150), (225, 170, 190)]
+    cells = [solid(colors[i % len(colors)], size=(tile_px, tile_px)) for i in range(24)]
+    path = tmp_path / "mosaic.svs"
+    save_tiled_tiff(mosaic(cells, 6, tile_px), path, mpp=cfg["target_mpp"])
+
+    backend = FakeBackend(cfg)
+    out = score_slide(path, cfg, backend)
+    direct = backend.predict(cells)[:, cfg["classes"].index("tumor")].mean() * 100
+    assert out["mpp"] == pytest.approx(cfg["target_mpp"]) and out["mpp_estimated"] is False
+    assert out["n_tiles"] == len(cells)
+    assert out["app_tumor_pct"] == pytest.approx(direct, abs=0.5)
+
+
+# --- embeddings: one GPU pass, any prompt set re-scored later ------------------------------------
+
+from project.tcga import score_from_embeddings, scores_path
+
+
+def test_score_slide_saves_embeddings_in_the_agreed_format(tmp_path, cfg):
+    path = tmp_path / "slide.png"
+    he_slide(2048, 1536).save(path)
+    backend = FakeBackend(cfg)
+    emb_path = tmp_path / "emb" / "slide.npz"
+    out = score_slide(path, cfg, backend, organ="lung", emb_path=emb_path)
+
+    z = np.load(emb_path)
+    assert z["feats"].dtype == np.float32 and z["feats"].shape[0] == out["n_tiles"]
+    assert z["coords"].dtype == np.int64 and z["coords"].shape == (out["n_tiles"], 2)
+    assert str(z["model"]) == "fake"
+    grid = build_grid(open_slide(path, None, cfg["default_mpp"]), cfg)
+    np.testing.assert_array_equal(z["coords"], [[t.x, t.y] for t in grid.tiles])   # columns (x, y), AGENTS.md §4
+    assert out["organ"] == "lung" and out["prompt_set"] == cfg["prompt_set"]
+
+
+def test_rescoring_from_embeddings_matches_scoring_the_slide(tmp_path, cfg):
+    path = tmp_path / "slide.png"
+    he_slide(2048, 1536).save(path)
+    backend = FakeBackend(cfg)
+    emb_path = tmp_path / "slide.npz"
+    first = score_slide(path, cfg, backend, organ="colon", emb_path=emb_path)
+    again = score_from_embeddings(emb_path, cfg, backend, organ="colon")
+    for key in ("app_tumor_pct", "app_necrosis_pct", "n_tiles", "organ", "prompt_set", "model"):
+        assert again[key] == pytest.approx(first[key]) if isinstance(first[key], float) else again[key] == first[key]
+
+
+def test_scores_file_is_per_prompt_set(cfg, tmp_path, monkeypatch):
+    monkeypatch.setenv("TCGA_DIR", str(tmp_path))
+    assert scores_path(cfg) == tmp_path / f"app_scores_{cfg['prompt_set']}.csv"
+    assert scores_path({**cfg, "prompt_set": "v9"}).name == "app_scores_v9.csv"

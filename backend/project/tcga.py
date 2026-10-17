@@ -2,9 +2,10 @@
 
     python -m project.tcga labels               # login node: GDC + ABSOLUTE → <tcga_dir>/labels.csv
     python -m project.tcga download --yes       # login node: selected slides → <tcga_dir>/slides/ (asks without --yes)
-    python -m project.tcga score --split train  # GPU job only: CONCH on each downloaded slide → app_scores.csv
+    python -m project.tcga score --split train  # GPU job: CONCH tile embeddings (saved) → app_scores_<prompts>.csv
+    python -m project.tcga score --embeddings-only  # CPU job: re-score saved embeddings after a prompt change
     python -m project.tcga check --split train  # CPU: app vs. pathologist on train only, before test is scored
-    python -m project.tcga evaluate             # CPU: results/tcga_validation.json
+    python -m project.tcga evaluate             # CPU: results/tcga_validation_<prompts>.json
 
 labels.csv, slides and per-slide scores are patient-level and stay under tcga_dir (or $TCGA_DIR) (gitignored, AGENTS.md §3, §6).
 Only aggregate numbers go to results/.
@@ -15,6 +16,7 @@ import json
 import os
 import sys
 import time
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -30,23 +32,51 @@ from project.tiling import build_grid, read_tiles
 
 # --- scoring --------------------------------------------------------------------------------------
 
-def score_slide(path, cfg, backend):
-    """The app's whole-slide composition: mean class probability over the analyzed tiles, in percent."""
+def _summary(probs, cfg, organ, model, n_tissue_tiles, capped, mpp, mpp_estimated):
+    mean = probs.mean(axis=0) * 100
+    out = {f"app_{c}_pct": float(v) for c, v in zip(cfg["classes"], mean)}
+    out.update(n_tiles=int(len(probs)), n_tissue_tiles=int(n_tissue_tiles), capped=bool(capped), mpp=mpp,
+               mpp_estimated=bool(mpp_estimated), model=str(model), organ=organ or cfg["default_organ"],
+               prompt_set=cfg["prompt_set"])
+    return out
+
+
+def score_slide(path, cfg, backend, organ=None, emb_path=None):
+    """The app's whole-slide composition: mean class probability over the analyzed tiles, in percent.
+
+    With emb_path, the tile embeddings are saved too (AGENTS.md §4: feats [N, D] float32, coords [N, 2] int64
+    as (x, y), model), so other prompt sets can be scored later without reading the slide again.
+    """
     slide = open_slide(path, None, cfg["default_mpp"])
     try:
         grid = build_grid(slide, cfg)
         parts = []
         for i in range(0, len(grid.tiles), cfg["batch_size"]):
-            parts.append(backend.predict(read_tiles(slide, grid.tiles[i:i + cfg["batch_size"]], cfg["tile_px"])))
-        mean = np.concatenate(parts).mean(axis=0) * 100
+            parts.append(backend.embed(read_tiles(slide, grid.tiles[i:i + cfg["batch_size"]], cfg["tile_px"])))
+        feats = np.concatenate(parts).astype(np.float32)
     finally:
         close = getattr(getattr(slide, "osr", None), "close", None)
         if close:
             close()
-    out = {f"app_{c}_pct": float(v) for c, v in zip(cfg["classes"], mean)}
-    out.update(n_tiles=len(grid.tiles), n_tissue_tiles=grid.n_tissue_tiles, capped=grid.capped,
-               mpp=slide.mpp, mpp_estimated=slide.mpp_estimated, model=backend.name)
-    return out
+    meta = dict(n_tissue_tiles=grid.n_tissue_tiles, capped=grid.capped, mpp=slide.mpp,
+                mpp_estimated=slide.mpp_estimated)
+    if emb_path is not None:
+        emb_path = Path(emb_path)
+        emb_path.parent.mkdir(parents=True, exist_ok=True)
+        coords = np.array([[t.x, t.y] for t in grid.tiles], np.int64).reshape(-1, 2)
+        np.savez(emb_path, feats=feats, coords=coords, model=backend.name,
+                 **{k: np.nan if v is None else v for k, v in meta.items()})
+    return _summary(backend.classify(feats, organ), cfg, organ, backend.name, **meta)
+
+
+def score_from_embeddings(emb_path, cfg, backend, organ=None):
+    """Re-score a slide from its saved embeddings with the current prompts: no slide reading, no GPU needed."""
+    z = np.load(emb_path)
+    if str(z["model"]) != backend.name:
+        raise ValueError(f"{emb_path} holds {z['model']} embeddings, not {backend.name}")
+    mpp = float(z["mpp"])
+    return _summary(backend.classify(z["feats"], organ), cfg, organ, str(z["model"]), int(z["n_tissue_tiles"]),
+                    bool(z["capped"]), None if np.isnan(mpp) else mpp, bool(z["mpp_estimated"]))
 
 
 # --- evaluation -----------------------------------------------------------------------------------
@@ -149,6 +179,15 @@ def slide_path(cfg, slide_id):
     return tcga_dir(cfg) / "slides" / f"{slide_id}.svs"
 
 
+def emb_path(cfg, slide_id):
+    return tcga_dir(cfg) / "embeddings" / f"{slide_id}.npz"
+
+
+def scores_path(cfg):
+    """One scores file per prompt set, so results from different prompts never mix."""
+    return tcga_dir(cfg) / f"app_scores_{cfg['prompt_set']}.csv"
+
+
 def cmd_labels(cfg, args):
     t = cfg["tcga"]
     out_dir = tcga_dir(cfg)
@@ -190,18 +229,28 @@ def cmd_download(cfg, args):
 def cmd_score(cfg, args):
     cfg = {**cfg, "model": args.model}
     backend = load_backend(cfg)
+    organ = cfg["tcga"]["organ"]
     labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
-    out_path = tcga_dir(cfg) / "app_scores.csv"
+    out_path = scores_path(cfg)
     done = set(pd.read_csv(out_path)["slide_id"]) if out_path.exists() else set()
-    todo = slides_to_score(labels, done, args.split, lambda s: slide_path(cfg, s).exists())
+
+    def available(s):
+        return emb_path(cfg, s).exists() or (not args.embeddings_only and slide_path(cfg, s).exists())
+
+    todo = slides_to_score(labels, done, args.split, available)
     if args.limit:
         todo = todo[:args.limit]
-    print(f"Scoring {len(todo)} {'/'.join(args.split)} slides with {backend.name} "
-          f"({len(done)} already scored)", flush=True)
+    print(f"Scoring {len(todo)} {'/'.join(args.split)} slides with {backend.name}, organ {organ}, "
+          f"prompts {cfg['prompt_set']} ({len(done)} already scored)", flush=True)
     for i, slide_id in enumerate(todo, 1):
         start = time.monotonic()
+        saved = emb_path(cfg, slide_id)
         try:
-            row = {"slide_id": slide_id, **score_slide(slide_path(cfg, slide_id), cfg, backend), "error": ""}
+            if saved.exists():  # embedded before: re-score with the current prompts, no slide reading
+                scored = score_from_embeddings(saved, cfg, backend, organ)
+            else:
+                scored = score_slide(slide_path(cfg, slide_id), cfg, backend, organ, emb_path=saved)
+            row = {"slide_id": slide_id, **scored, "error": ""}
         except Exception as e:  # one bad slide shouldn't stop the job; it's left out of the evaluation
             row = {"slide_id": slide_id, "error": f"{type(e).__name__}: {e}"}
         pd.DataFrame([row]).to_csv(out_path, mode="a", header=not out_path.exists(), index=False)
@@ -210,24 +259,24 @@ def cmd_score(cfg, args):
 
 def cmd_evaluate(cfg, args):
     labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
-    scores = pd.read_csv(tcga_dir(cfg) / "app_scores.csv")
+    scores = pd.read_csv(scores_path(cfg))
     scores = scores[scores["app_tumor_pct"].notna()]
     models = sorted(scores["model"].dropna().unique())
     if models != ["conch"] and not args.allow_fake:
-        sys.exit(f"app_scores.csv has model(s) {models}; the validation must use CONCH.")
+        sys.exit(f"{scores_path(cfg).name} has model(s) {models}; the validation must use CONCH.")
     result = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"])
     result.update(project=cfg["tcga"]["project"], slide_kinds=cfg["tcga"]["slide_kinds"], model=models,
-                  prompt_set=cfg["prompt_set"])
-    out = repo_path(cfg["paths"]["results"]) / "tcga_validation.json"
+                  organ=cfg["tcga"]["organ"], prompt_set=cfg["prompt_set"])
+    out = repo_path(cfg["paths"]["results"]) / f"tcga_validation_{cfg['prompt_set']}.json"
     out.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
 
 
 def cmd_check(cfg, args):
     labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
-    scores = pd.read_csv(tcga_dir(cfg) / "app_scores.csv")
+    scores = pd.read_csv(scores_path(cfg))
     out = split_check(labels, scores, args.split, cfg["tcga"]["catch_cutoff"])
-    out.update(prompt_set=cfg["prompt_set"], model=sorted(scores["model"].dropna().unique()))
+    out.update(organ=cfg["tcga"]["organ"], prompt_set=cfg["prompt_set"], model=sorted(scores["model"].dropna().unique()))
     path = repo_path(cfg["paths"]["results"]) / f"tcga_check_{args.split}_{cfg['prompt_set']}.json"
     path.write_text(json.dumps(out, indent=2) + "\n")
     print(json.dumps(out, indent=2))
@@ -245,6 +294,8 @@ def main(argv=None):
     s.add_argument("--model", default="conch", choices=["conch", "fake"])
     s.add_argument("--split", nargs="+", default=["train", "test"], choices=["train", "cal", "test"])
     s.add_argument("--limit", type=int, default=0, help="score at most this many slides (0 = all)")
+    s.add_argument("--embeddings-only", action="store_true",
+                   help="only slides with saved embeddings: re-score new prompts without reading slides (CPU is fine)")
     c = sub.add_parser("check")
     c.add_argument("--split", default="train", choices=["train", "cal"])
     e = sub.add_parser("evaluate")
