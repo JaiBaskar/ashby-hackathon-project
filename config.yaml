@@ -64,6 +64,7 @@ reason_cutoffs:
 
 paths:
   uploads: data/uploads
+  jobs: data/jobs                   # display + heatmap PNGs per analysis, so history links survive restarts
   results: results
   crc_val_dir: data/CRC-VAL-HE-7K   # CRC-VAL-HE-7K tiles, one folder per class (scripts/get_crc_val.sh)
   bcss_dir: data/BCSS               # BCSS breast regions + masks, seeded subset (scripts/get_bcss.py)

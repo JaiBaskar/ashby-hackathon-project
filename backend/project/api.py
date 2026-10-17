@@ -5,8 +5,10 @@ Run with: uvicorn --factory --app-dir backend project.api:create_app
 
 import io
 import logging
+import re
 import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Literal, Optional
 
@@ -19,12 +21,14 @@ from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
 from project.regions import rank_regions, score_grid, slide_composition, tumor_heatmap
+from project.store import now, open_store
 from project.tiling import NoTissueError, build_grid, read_tiles
 
 log = logging.getLogger(__name__)
 
 STEPS = ["finding_tissue", "tiling", "analyzing", "ranking"]
 CHUNK = 1024 * 1024
+JOB_ID = re.compile(r"^[0-9a-f]{32}$")  # uuid4().hex; anything else never reaches the disk
 
 
 # --- response models (the Result JSON in implementation-steps.md §4) ------------------------------
@@ -78,6 +82,21 @@ class JobStatus(BaseModel):
     model: str
     result: Optional[Result] = None
     error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    cancer_type: Optional[str] = None   # most likely cancer type; None until a classifier exists
+
+
+class JobSummary(BaseModel):
+    id: str
+    created_at: datetime
+    status: Literal["running", "done", "error"]
+    model: str
+    cancer_type: Optional[str]
+
+
+class JobList(BaseModel):
+    store: Literal["postgres", "memory"]
+    jobs: list[JobSummary]
 
 
 # --- jobs -----------------------------------------------------------------------------------------
@@ -92,6 +111,8 @@ class Job:
         self.error = None
         self.display_png = None
         self.heatmap_png = None
+        self.created_at = now()
+        self.cancer_type = None
         self.history = [(None, 0.0)]
         self.lock = threading.Lock()
 
@@ -105,7 +126,8 @@ class Job:
     def status_body(self):
         with self.lock:
             return JobStatus(status=self.status, step=self.step, progress=self.progress, model=self.model,
-                             result=self.result, error=self.error)
+                             result=self.result, error=self.error, created_at=self.created_at,
+                             cancer_type=self.cancer_type)
 
 
 def png(image):
@@ -114,11 +136,21 @@ def png(image):
     return buf.getvalue()
 
 
-def run_job(job, job_id, slide, path, cfg, backend):
+def record(store_call, job_id, *args):
+    """Write to the store; a database problem is logged, never shown in place of the result."""
+    try:
+        store_call(job_id, *args)
+    except Exception:
+        log.exception("could not record job %s in the store", job_id)
+
+
+def run_job(job, job_id, slide, path, cfg, backend, store, job_dir):
     try:
         job.advance("finding_tissue", 0.05)
         grid = build_grid(slide, cfg)
         job.display_png = png(grid.display)
+        job_dir.mkdir(parents=True, exist_ok=True)
+        (job_dir / "display.png").write_bytes(job.display_png)
 
         job.advance("tiling", 0.15)
         tiles = grid.tiles
@@ -136,6 +168,7 @@ def run_job(job, job_id, slide, path, cfg, backend):
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
         job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
+        (job_dir / "heatmap.png").write_bytes(job.heatmap_png)
         result = Result(
             model=backend.name,
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
@@ -146,16 +179,20 @@ def run_job(job, job_id, slide, path, cfg, backend):
             regions=[Region(**r) for r in regions],
             note=note,
         )
+        record(store.finish, job_id, result.model_dump(mode="json"), job.cancer_type)
         with job.lock:
             job.result, job.status, job.progress = result, "done", 1.0
             job.history.append((job.step, 1.0))
     except (NoTissueError, IngestError) as e:
+        record(store.fail, job_id, str(e))
         with job.lock:
             job.status, job.error = "error", str(e)
     except Exception as e:
         log.exception("job %s failed", job_id)
+        message = f"Analysis failed ({type(e).__name__}). Try another image."
+        record(store.fail, job_id, message)
         with job.lock:
-            job.status, job.error = "error", f"Analysis failed ({type(e).__name__}). Try another image."
+            job.status, job.error = "error", message
     finally:
         close = getattr(getattr(slide, "osr", None), "close", None)
         if close:
@@ -178,20 +215,39 @@ def save_upload(file, dest, max_bytes, max_mb):
             out.write(chunk)
 
 
-def create_app(cfg=None):
+def create_app(cfg=None, store=None):
     cfg = cfg or load_config()
     backend = load_backend(cfg)  # Phase 2 startup check: refuses to start rather than fall back to the demo model
+    store = store or open_store()  # Postgres if DATABASE_URL is set; refuses to start if it can't connect
     uploads = repo_path(cfg["paths"]["uploads"])
     uploads.mkdir(parents=True, exist_ok=True)
+    jobs_dir = repo_path(cfg["paths"]["jobs"])
 
     app = FastAPI(title="Biopsy sampling-site finder")
     app.state.jobs = {}
+    app.state.store = store
+    not_found = "No analysis with this id. It may have been run on another machine or before history was kept."
 
-    def get_job(request, job_id):
+    def get_status(request, job_id):
+        """The live job if this process ran it, else the stored record (e.g. after a restart)."""
         job = request.app.state.jobs.get(job_id)
-        if job is None:
-            raise HTTPException(404, "No analysis with this id. It may have expired when the server restarted.")
-        return job
+        if job is not None:
+            return job.status_body()
+        rec = store.get(job_id) if JOB_ID.match(job_id) else None
+        if rec is None:
+            raise HTTPException(404, not_found)
+        return JobStatus(status=rec.status, step=None, progress=1.0 if rec.status == "done" else 0.0,
+                         model=rec.model, result=rec.result, error=rec.error, created_at=rec.created_at,
+                         cancer_type=rec.cancer_type)
+
+    def get_png(request, job_id, name):
+        job = request.app.state.jobs.get(job_id)
+        if job is not None:
+            return image_response(getattr(job, name.replace(".", "_")))
+        path = jobs_dir / job_id / name
+        if not JOB_ID.match(job_id) or not path.is_file():
+            raise HTTPException(404, not_found)
+        return image_response(path.read_bytes())
 
     @app.post("/api/jobs", response_model=JobCreated)
     def create_job(request: Request, file: UploadFile = File(...), mpp: Optional[str] = Form(None)):
@@ -211,20 +267,29 @@ def create_app(cfg=None):
             raise HTTPException(400, str(e)) from e
         job = Job(backend.name)
         request.app.state.jobs[job_id] = job
-        threading.Thread(target=run_job, args=(job, job_id, slide, path, cfg, backend), daemon=True).start()
+        record(store.create, job_id, backend.name, cfg["prompt_set"], job.created_at)
+        threading.Thread(target=run_job, args=(job, job_id, slide, path, cfg, backend, store, jobs_dir / job_id),
+                         daemon=True).start()
         return JobCreated(job_id=job_id)
+
+    @app.get("/api/jobs", response_model=JobList)
+    def list_jobs():
+        return JobList(store=store.name, jobs=[
+            JobSummary(id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type)
+            for r in store.list()
+        ])
 
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
-        return get_job(request, job_id).status_body()
+        return get_status(request, job_id)
 
     @app.get("/api/jobs/{job_id}/display.png")
     def display_png(request: Request, job_id: str):
-        return image_response(get_job(request, job_id).display_png)
+        return get_png(request, job_id, "display.png")
 
     @app.get("/api/jobs/{job_id}/heatmap.png")
     def heatmap_png(request: Request, job_id: str):
-        return image_response(get_job(request, job_id).heatmap_png)
+        return get_png(request, job_id, "heatmap.png")
 
     return app
 
