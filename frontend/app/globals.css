@@ -222,3 +222,20 @@
   border: var(--box-stroke-best) solid var(--color-box-best);
   box-shadow: 0 0 0 var(--box-outline-width) var(--color-box-outline);
 }
+
+/* Print: the sampling sheet on paper. White page, no app chrome, boxes keep their ink. */
+@media print {
+  @page {
+    margin: 14mm;
+  }
+  :root {
+    --color-canvas: #FFFFFF;
+    --color-surface: #FFFFFF;
+    --color-ink: #000000;
+    --color-ink-muted: #3A3A3A;
+  }
+  * {
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+}
