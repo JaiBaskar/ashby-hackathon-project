@@ -68,11 +68,20 @@ def test_upload_runs_to_done_and_result_validates(client):
     assert result.regions and result.regions[0].is_best
     assert result.image.url == f"/api/jobs/{job_id}/display.png"
     assert result.heatmap_url == f"/api/jobs/{job_id}/heatmap.png"
+    assert 0.0 <= result.heatmap_range.low < result.heatmap_range.high <= 1.0
     assert result.image.mpp_estimated is True
     assert sum(result.slide_composition.values()) == pytest.approx(1.0)
     for region in result.regions:
         assert 0 <= region.x and region.x + region.w <= result.image.width
         assert 0 <= region.y and region.y + region.h <= result.image.height
+
+
+def test_results_saved_before_heatmap_ranges_still_load(client):
+    # Postgres keeps old Result JSON; jobs stored before heatmap_range existed must still open from history.
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    old = {k: v for k, v in body["result"].items() if k != "heatmap_range"}
+    assert Result.model_validate(old).heatmap_range is None
 
 
 def test_display_and_heatmap_pngs_are_served_at_display_size(client):

@@ -27,6 +27,8 @@ export interface Result {
   organ?: string | null
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
+  // Tumor probability at the overlay's clear and strongest ends; null for cases saved before it existed.
+  heatmap_range?: { low: number; high: number } | null
   regions_url: string
   measure_url: string
   box_um: number

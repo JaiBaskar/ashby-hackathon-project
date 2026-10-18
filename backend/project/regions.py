@@ -10,7 +10,8 @@ import numpy as np
 from PIL import Image
 
 HEATMAP_RGB = (255, 196, 0)    # amber, far in hue from eosin and hematoxylin; opacity follows the tumor probability
-HEATMAP_MAX_ALPHA = 0.85
+HEATMAP_MAX_ALPHA = 0.65       # the strongest tint still lets the tissue show through
+HEATMAP_MIN_SPAN = 0.2         # the color scale covers at least this much probability, so noise isn't blown up
 
 
 def pct(fraction):
@@ -234,17 +235,57 @@ def measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h):
     }
 
 
-def tumor_heatmap(probs, classes, tile_size, scale, display_size):
-    """Transparent RGBA overlay at display size: each analyzed tile tinted with opacity ∝ its tumor probability."""
+def heatmap_range(tumor):
+    """(low, high) tumor probability the heatmap's color scale spans: the slide's 5th–95th percentile,
+    widened around its middle to at least HEATMAP_MIN_SPAN and kept within [0, 1]."""
+    values = np.asarray(tumor, float)
+    values = values[~np.isnan(values)]
+    if values.size == 0:
+        return 0.0, 1.0
+    lo, hi = np.percentile(values, [5, 95])
+    span = max(hi - lo, HEATMAP_MIN_SPAN)
+    lo = min(max((lo + hi) / 2 - span / 2, 0.0), 1.0 - span)
+    return float(lo), float(lo + span)
+
+
+def _upsample(channel, size):
+    """Bicubic resize of a float grid, so values blend between tile centers instead of stepping at tile edges."""
+    return np.asarray(Image.fromarray(channel.astype(np.float32), "F").resize(size, Image.BICUBIC))
+
+
+def _smoothstep(x, lo, hi):
+    t = np.clip((x - lo) / (hi - lo), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def tumor_heatmap(probs, classes, tile_size, scale, display_size, value_range=None):
+    """Transparent RGBA overlay at display size, amber with opacity following tumor probability.
+
+    Opacity runs from clear at value_range's low end to HEATMAP_MAX_ALPHA at its high end (default: heatmap_range
+    of this slide), so differences within a slide stay visible. Values are interpolated smoothly between tile
+    centers, so the overlay has rounded edges and corners instead of tile-sized squares.
+    """
     tumor = probs[..., classes.index("tumor")]
-    rows, cols = tumor.shape
-    small = np.zeros((rows, cols, 4), np.uint8)
-    small[..., :3] = HEATMAP_RGB
-    small[..., 3] = np.where(np.isnan(tumor), 0, np.round(np.nan_to_num(tumor) * HEATMAP_MAX_ALPHA * 255))
+    lo, hi = value_range or heatmap_range(tumor)
     px = tile_size / scale
-    overlay = Image.fromarray(small, "RGBA").resize(
-        (max(1, round(cols * px)), max(1, round(rows * px))), Image.NEAREST
-    )
+    # Only whole tiles are cut, so the grid can stop short of the image's right and bottom edges. Treat that strip
+    # as unanalyzed (one NaN column/row), so the overlay fades into it instead of ending in a hard line.
+    pad_x = int(round(tumor.shape[1] * px) < display_size[0])
+    pad_y = int(round(tumor.shape[0] * px) < display_size[1])
+    tumor = np.pad(tumor, ((0, pad_y), (0, pad_x)), constant_values=np.nan)
+    rows, cols = tumor.shape
+    analyzed = ~np.isnan(tumor)
+    size = (max(1, round(cols * px)), max(1, round(rows * px)))
+
+    weight = _upsample(analyzed.astype(float), size)
+    # Normalized interpolation: tiles that weren't analyzed carry no weight, rather than pulling values toward 0.
+    value = _upsample(np.where(analyzed, tumor, 0.0), size) / np.maximum(weight, 1e-6)
+    strength = np.clip((value - lo) / (hi - lo), 0, 1)
+    alpha = HEATMAP_MAX_ALPHA * strength * _smoothstep(weight, 0.25, 0.75)
+
+    small = np.zeros((size[1], size[0], 4), np.uint8)
+    small[..., :3] = HEATMAP_RGB
+    small[..., 3] = np.round(alpha * 255)
     canvas = Image.new("RGBA", display_size, (0, 0, 0, 0))
-    canvas.paste(overlay, (0, 0))
+    canvas.paste(Image.fromarray(small, "RGBA"), (0, 0))
     return canvas

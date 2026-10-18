@@ -124,6 +124,22 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
 
+test('the heatmap legend shows the tumor-probability range its colors span', () => {
+  render(<Results result={makeResult({ heatmap_range: { low: 0.72, high: 0.97 } })} />)
+  expect(screen.queryByTestId('heatmap-legend')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
+  const legend = screen.getByTestId('heatmap-legend')
+  expect(legend).toHaveTextContent(/tumor probability/i)
+  expect(legend).toHaveTextContent(/72%.*97%/)
+  expect(legend).toHaveTextContent(/scaled to this slide/i)
+})
+
+test('a case saved before heatmap ranges existed still gets a plain heatmap legend', () => {
+  render(<Results result={makeResult({ heatmap_range: null })} />)
+  fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
+  expect(screen.getByTestId('heatmap-legend')).toHaveTextContent(/brighter amber = more tumor/i)
+})
+
 test('shows when the case was created, and the cancer type only when one was identified', () => {
   const { unmount } = render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
   expect(screen.getByText('Oct 17, 2026, 2:05 PM').tagName).toBe('TIME')

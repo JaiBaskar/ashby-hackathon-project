@@ -29,6 +29,7 @@ export function makeResult(overrides: Partial<Result> = {}): Result {
     organ: 'other',
     image: { url: '/api/jobs/abc/display.png', width: 2048, height: 1536, mpp: 0.5, mpp_estimated: false },
     heatmap_url: '/api/jobs/abc/heatmap.png',
+    heatmap_range: { low: 0.5, high: 0.9 },
     regions_url: '/api/jobs/abc/regions',
     measure_url: '/api/jobs/abc/measure',
     box_um: 512,
