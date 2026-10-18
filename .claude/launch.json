@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "api-demo",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "PROJECT_MODEL=fake DATABASE_URL= .venv/bin/python -m uvicorn --factory --app-dir backend project.api:create_app --host 127.0.0.1 --port 8000"],
+      "port": 8000
+    },
+    {
+      "name": "web",
+      "runtimeExecutable": "/bin/sh",
+      "runtimeArgs": ["-c", "cd frontend && npm run dev"],
+      "port": 3000
+    }
+  ]
+}

@@ -1,27 +1,31 @@
 'use client'
 
-import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 import { errorMessage, type MeasuredBox, type RegionsAtSize, type Result } from '@/lib/api'
-import { boxLabel, organLabel, pct } from '@/lib/format'
+import { readCase, useCase, useThreshold } from '@/lib/casebook'
+import { boxLabel, pct } from '@/lib/format'
+import { caseSummary } from '@/lib/summary'
+import CaseBar from './CaseBar'
+import CaseNotes from './CaseNotes'
 import type { Rect } from './FreeBox'
 import FreeBoxPanel from './FreeBoxPanel'
 import RegionPanel from './RegionPanel'
-import RequestMeta from './RequestMeta'
-import SlideViewer from './SlideViewer'
-import { button, DemoBadge, ResearchNotice } from './ui'
+import RegionTable, { regionRows, type Row } from './RegionTable'
+import SlideStage, { zoomIn, zoomOut } from './SlideStage'
+import ThresholdField from './ThresholdField'
+import { ResearchNotice } from './ui'
 
 // Box sizes the backend offers. Changing size re-ranks the job's stored tile scores (no new model run);
 // each size is fetched once and kept, and the first size comes with the result.
 function BoxSize({ sizes, value, loading, onChange }: { sizes: number[]; value: number; loading: boolean; onChange: (um: number) => void }) {
   return (
-    <div role="radiogroup" aria-label="Box size" aria-busy={loading} className="flex items-center gap-2.5 text-sm font-medium">
-      <span aria-hidden>Box size</span>
+    <div role="radiogroup" aria-label="Box size for suggestions" aria-busy={loading} className="flex items-center gap-2 text-sm">
+      <span aria-hidden className="text-ink-muted">Suggest boxes of</span>
       <div className="inline-flex rounded-md border border-line-strong bg-surface p-0.5">
         {sizes.map((um) => (
           <label
             key={um}
-            className={`relative inline-flex min-h-10 cursor-pointer items-center rounded-sm px-3 tabular-nums transition-colors duration-fast has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus has-[:disabled]:cursor-wait ${
+            className={`relative inline-flex min-h-9 cursor-pointer items-center rounded-sm px-2.5 font-mono text-xs font-medium transition-colors duration-fast has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-focus has-[:disabled]:cursor-wait ${
               um === value ? 'bg-accent text-accent-ink' : 'text-ink hover:bg-surface-sunken'
             }`}
           >
@@ -43,14 +47,22 @@ function BoxSize({ sizes, value, loading, onChange }: { sizes: number[]; value: 
 }
 
 export default function Results({
+  id,
   result: initial,
   meta,
   timeZone,
+  nav,
 }: {
+  id?: string
   result: Result
   meta?: { created_at?: string | null; cancer_type?: string | null }
   timeZone?: string
+  nav?: React.ReactNode
 }) {
+  const [entry, updateCase] = useCase(id)
+  const [threshold, setThreshold] = useThreshold()
+  const [zoom, setZoom] = useState(1)
+  const [heatmapOpacity, setHeatmapOpacity] = useState(100)
   const cache = useRef(new Map<number, RegionsAtSize>())
   const [boxUm, setBoxUm] = useState(initial.box_um)
   const [loading, setLoading] = useState(false)
@@ -59,6 +71,7 @@ export default function Results({
   const result: Result = sized ? { ...initial, box_um: sized.box_um, regions: sized.regions, note: sized.note } : initial
   const [selected, setSelected] = useState<number | 'free'>(result.regions[0]?.rank ?? 0)
   const [showHeatmap, setShowHeatmap] = useState(false)
+  const [showNecrosis, setShowNecrosis] = useState(false)
   const region = result.regions.find((r) => r.rank === selected)
   const n = result.regions.length
 
@@ -73,8 +86,25 @@ export default function Results({
   const focusFree = useRef(false)
   const latestRequest = useRef(0)
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  // Live scoring: at most one request out at a time; while it's out, only the newest box waits to go next.
+  const inFlight = useRef(false)
+  const pending = useRef<Rect | null>(null)
+  const drewNew = useRef(false) // this drawing gesture has already put a box on the slide
 
   useEffect(() => () => clearTimeout(timer.current), [])
+  // Your box from last time on this computer comes back (after mount, so the server render matches).
+  useEffect(() => {
+    const saved = id ? readCase(id).box : null
+    if (saved) {
+      setFree(saved)
+      measureLive(saved)
+    }
+    // once per case
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id])
+  useEffect(() => {
+    if (id && measured && free) updateCase({ box: free })
+  }, [id, measured, free, updateCase])
   useEffect(() => {
     if (focusFree.current && free) freeRef.current?.focus()
     focusFree.current = false
@@ -87,7 +117,6 @@ export default function Results({
   }, [drawing])
 
   async function measureNow(rect: Rect) {
-    clearTimeout(timer.current)
     const id = ++latestRequest.current
     setMeasuring(true)
     const round = (v: number) => String(Number(v.toFixed(1)))
@@ -108,14 +137,38 @@ export default function Results({
     }
   }
 
+  async function pump() {
+    while (pending.current && !inFlight.current) {
+      const rect = pending.current
+      pending.current = null
+      inFlight.current = true
+      try {
+        await measureNow(rect)
+      } finally {
+        inFlight.current = false
+      }
+    }
+  }
+
+  function measureLive(rect: Rect) {
+    pending.current = rect
+    pump()
+  }
+
+  // Every change re-scores the box: pointer moves and releases right away (throttled to one request at a
+  // time), arrow keys once they stop for 300 ms.
   function changeFree(rect: Rect, when: 'drag' | 'now' | 'soon') {
+    if (selected !== 'free') {
+      // a new box (drawn, or grabbed from a suggestion): don't show the previous box's numbers
+      latestRequest.current++
+      setMeasured(null)
+      setMeasureError(null)
+    }
     setFree(rect)
     setSelected('free')
-    if (when === 'now') measureNow(rect)
-    if (when === 'soon') {
-      clearTimeout(timer.current)
-      timer.current = setTimeout(() => measureNow(rect), 300)
-    }
+    clearTimeout(timer.current)
+    if (when === 'soon') timer.current = setTimeout(() => measureLive(rect), 300)
+    else measureLive(rect)
   }
 
   function placeFree(rect: Rect, focus = false) {
@@ -127,7 +180,9 @@ export default function Results({
   }
 
   function removeFree() {
+    if (id) updateCase({ box: null })
     clearTimeout(timer.current)
+    pending.current = null
     latestRequest.current++
     setFree(null)
     setMeasured(null)
@@ -140,11 +195,59 @@ export default function Results({
   // region in the middle of the image and focus it, so the arrow keys take over.
   function drawButton(e: React.MouseEvent) {
     if (drawing) return setDrawing(false)
+    drewNew.current = false
     if (e.detail !== 0) return setDrawing(true)
     const { width, height } = result.image
     const w = result.regions[0]?.w ?? width / 4
     const h = result.regions[0]?.h ?? w
     placeFree({ x: (width - w) / 2, y: (height - h) / 2, w, h }, true)
+  }
+
+  async function copySummary(): Promise<boolean> {
+    try {
+      await navigator.clipboard.writeText(caseSummary(result, threshold, entry.label, free ? measured : null))
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  // Keyboard shortcuts (listed in the ? sheet). They stay out of the way while you type in a field.
+  const keys = useRef<(e: KeyboardEvent) => void>(() => {})
+  keys.current = (e: KeyboardEvent) => {
+    const t = e.target as HTMLElement | null
+    if (e.ctrlKey || e.metaKey || e.altKey || (t && (t.closest('input, textarea, select') || t.isContentEditable))) return
+    const rank = Number(e.key)
+    if (rank >= 1 && rank <= 9 && result.regions.some((r) => r.rank === rank)) setSelected(rank)
+    else if (e.key === 'h' || e.key === 'H') setShowHeatmap((v) => !v)
+    else if ((e.key === 'n' || e.key === 'N') && result.necrosis_heatmap_url) setShowNecrosis((v) => !v)
+    else if (e.key === 'd' || e.key === 'D') {
+      drewNew.current = false
+      setDrawing(true)
+    } else if ((e.key === 'Delete' || e.key === 'Backspace') && free) removeFree()
+    else if (e.key === '+' || e.key === '=') setZoom(zoomIn)
+    else if (e.key === '-' || e.key === '_') setZoom(zoomOut)
+    else if (e.key === '0') setZoom(1)
+    else if ((e.key === 'p' || e.key === 'P') && id) window.location.assign(`/jobs/${id}/sheet`)
+    else return
+    e.preventDefault()
+  }
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => keys.current(e)
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
+  const rows: Row[] = regionRows(result.regions)
+  if (free && measured) {
+    rows.push({
+      key: 'free',
+      label: 'Yours',
+      composition: measured.composition,
+      score: measured.score,
+      size: `${Math.round(measured.width_um)}×${Math.round(measured.height_um)}`,
+      coverage: measured.tissue_coverage,
+    })
   }
 
   function show(um: number, regions: RegionsAtSize['regions']) {
@@ -171,98 +274,98 @@ export default function Results({
   }
 
   return (
-    <main className="mx-auto max-w-6xl animate-enter px-4 py-8 sm:px-6 sm:py-12">
-      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
-        <div>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="font-display text-xl font-normal">Suggested sampling sites</h1>
-            <DemoBadge model={result.model} />
-          </div>
-          <p className="mt-1 text-ink-muted">
-            {n} {n === 1 ? 'region' : 'regions'}, ranked by tumor content, necrosis and evenness ·{' '}
-            <span className="tabular-nums">{result.tiles.count}</span> tiles analyzed
-            {result.tiles.capped ? ' (sampled evenly)' : ''}{result.organ ? ` · Organ: ${organLabel(result.organ)}` : ''}
-          </p>
-        </div>
-        <div className="flex flex-wrap items-center gap-3">
-          <BoxSize sizes={initial.box_sizes_um} value={result.box_um} loading={loading} onChange={changeBox} />
-          <button type="button" aria-pressed={drawing} onClick={drawButton} className={`${button.secondary} ${drawing ? 'border-accent-strong bg-surface-sunken' : ''}`}>
-            Draw a box
-          </button>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={showHeatmap}
-            onClick={() => setShowHeatmap((v) => !v)}
-            className="inline-flex min-h-11 items-center gap-2.5 rounded-md px-2 text-sm font-medium"
-          >
-            <span
-              aria-hidden
-              className={`relative h-5 w-9 rounded-full transition-colors duration-fast ${showHeatmap ? 'bg-accent-strong' : 'bg-line-strong'}`}
-            >
-              <span
-                className={`absolute top-0.5 left-0.5 size-4 rounded-full bg-surface shadow-raised transition-transform duration-fast ease-standard ${
-                  showHeatmap ? 'translate-x-4' : ''
-                }`}
-              />
-            </span>
-            Tumor heatmap
-          </button>
-          <Link href="/upload" className={button.secondary}>
-            New analysis
-          </Link>
-        </div>
-      </div>
-
-      {meta?.created_at && (
-        <div className="mt-4">
-          <RequestMeta createdAt={meta.created_at} cancerType={meta.cancer_type} timeZone={timeZone} />
-        </div>
-      )}
+    <main className="mx-auto max-w-[90rem] animate-enter px-4 py-6 sm:px-6 sm:py-8">
+      <CaseBar
+        id={id}
+        result={result}
+        label={entry.label}
+        onLabel={(label) => updateCase({ label })}
+        createdAt={meta?.created_at}
+        cancerType={meta?.cancer_type}
+        timeZone={timeZone}
+        onCopy={copySummary}
+        nav={nav}
+      />
 
       {sizeError && (
-        <p role="alert" className="mt-6 rounded-md border border-line bg-surface px-4 py-3 text-danger">
+        <p role="alert" className="mt-5 rounded-md border border-danger/40 bg-surface px-4 py-3 text-danger">
           {sizeError}
         </p>
       )}
+      {result.note && <p className="mt-5 rounded-md border border-line bg-surface px-4 py-3 text-ink">{result.note}</p>}
 
-      {result.note && (
-        <p className="mt-6 rounded-md border border-line bg-surface px-4 py-3 text-ink">
-          {result.note}
-        </p>
-      )}
-
-      <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
-        <div>
-          <SlideViewer
-            result={result}
-            selected={selected === 'free' ? -1 : selected}
-            onSelect={setSelected}
-            showHeatmap={showHeatmap}
-            free={free}
-            freeSelected={selected === 'free'}
-            freeLabel={`Your box${measured ? `: ${pct(measured.composition.tumor)} tumor` : ''}`}
-            freeRef={freeRef}
+      <div className="mt-5 grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_23rem]">
+        <div className="min-w-0">
+          <SlideStage
+            zoom={zoom}
+            onZoom={setZoom}
             drawing={drawing}
-            onDrawn={(rect) => rect && placeFree(rect)}
-            onFreeSelect={() => setSelected('free')}
-            onFreeChange={changeFree}
+            onDraw={drawButton}
+            showHeatmap={showHeatmap}
+            onHeatmap={() => setShowHeatmap((v) => !v)}
+            showNecrosis={showNecrosis}
+            onNecrosis={() => setShowNecrosis((v) => !v)}
+            heatmapOpacity={heatmapOpacity}
+            onHeatmapOpacity={setHeatmapOpacity}
+            viewer={{
+              result,
+              selected: selected === 'free' ? -1 : selected,
+              onSelect: setSelected,
+              showHeatmap,
+              showNecrosis,
+              free,
+              freeSelected: selected === 'free',
+              freeLabel: `Your box${measured ? `: ${pct(measured.composition.tumor)} tumor` : ''}`,
+              freeRef,
+              drawing,
+              onDrawn: (rect) => {
+                if (!rect) return free && drewNew.current && removeFree()
+                setDrawing(false)
+                changeFree(rect, 'now')
+              },
+              onSketch: (rect) => {
+                drewNew.current = true
+                changeFree(rect, 'drag')
+              },
+              onFreeSelect: () => setSelected('free'),
+              onFreeChange: changeFree,
+            }}
           />
           <p className="mt-2 text-sm text-ink-muted">
             {drawing
-              ? 'Drag across the slide to draw your box. Press Escape to cancel.'
-              : 'Select a numbered box to see why it was chosen, or draw your own.'}
+              ? 'Drag across the slide to draw your box. Escape cancels.'
+              : 'Pick a box to see why it was chosen; drag its corners or edges to reshape it. Press ? for shortcuts.'}
           </p>
+
+          <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">
+            <h2 className="text-base font-semibold">
+              Regions <span className="num ml-1 text-sm font-normal text-ink-muted">{n}</span>
+            </h2>
+            <div className="flex flex-wrap items-center gap-x-5 gap-y-2">
+              <ThresholdField value={threshold} onChange={setThreshold} />
+              <BoxSize sizes={initial.box_sizes_um} value={result.box_um} loading={loading} onChange={changeBox} />
+            </div>
+          </div>
+          <div className="mt-3">
+            <RegionTable rows={rows} selected={selected} threshold={threshold} onSelect={setSelected} />
+          </div>
         </div>
-        <div className="lg:sticky lg:top-6">
+
+        <aside className="space-y-4 lg:sticky lg:top-4">
           {selected === 'free' && free ? (
-            <FreeBoxPanel measured={measured} measuring={measuring} error={measureError} result={result} onRemove={removeFree} />
+            <FreeBoxPanel measured={measured} measuring={measuring} error={measureError} result={result} threshold={threshold} onRemove={removeFree} />
           ) : (
             region && (
-              <RegionPanel region={region} result={result} onAdjust={() => placeFree({ x: region.x, y: region.y, w: region.w, h: region.h })} />
+              <RegionPanel
+                region={region}
+                result={result}
+                threshold={threshold}
+                onAdjust={() => placeFree({ x: region.x, y: region.y, w: region.w, h: region.h })}
+              />
             )
           )}
-        </div>
+          <CaseNotes entry={entry} onChange={updateCase} />
+        </aside>
       </div>
 
       <footer className="mt-10 border-t border-line pt-5">

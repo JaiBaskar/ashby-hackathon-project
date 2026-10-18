@@ -21,7 +21,8 @@ from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
 from project.regions import (
-    box_tiles, default_box_um, measure_box, rank_regions, score_grid, slide_composition, tumor_heatmap,
+    NECROSIS_RANGE, box_tiles, class_heatmap, default_box_um, heatmap_range, measure_box, rank_regions, score_grid,
+    slide_composition,
 )
 from project.store import now, open_store
 from project.tiling import NoTissueError, build_grid, read_tiles
@@ -48,6 +49,12 @@ class TileInfo(BaseModel):
     capped: bool
 
 
+class HeatmapRange(BaseModel):
+    """Class probability at a heatmap's clear (low) and strongest (high) ends, for the legend."""
+    low: float
+    high: float
+
+
 class Region(BaseModel):
     rank: int
     is_best: bool
@@ -68,6 +75,9 @@ class Result(BaseModel):
     organ: Optional[str] = None          # None for jobs recorded before the organ picker
     image: ImageInfo
     heatmap_url: str
+    heatmap_range: Optional[HeatmapRange] = None  # None for jobs stored before heatmap ranges existed
+    necrosis_heatmap_url: Optional[str] = None    # None for jobs stored before the necrosis heatmap existed
+    necrosis_heatmap_range: Optional[HeatmapRange] = None
     regions_url: str
     measure_url: str
     box_um: float
@@ -117,11 +127,19 @@ class JobStatus(BaseModel):
 
 
 class JobSummary(BaseModel):
+    """One row of the worklist. The numbers come from the stored Result JSON; nothing new is stored."""
     id: str
     created_at: datetime
     status: Literal["running", "done", "error"]
     model: str
     cancer_type: Optional[str]
+    organ: Optional[str] = None
+    best_tumor: Optional[float] = None      # region 1's tumor fraction; None while running, failed or with no regions
+    best_necrosis: Optional[float] = None
+    n_regions: Optional[int] = None
+    progress: float = 0.0
+    best_box: Optional[list[int]] = None    # region 1 as [x, y, w, h] in display px, for the worklist thumbnail
+    image_size: Optional[list[int]] = None  # display image [width, height]
 
 
 class JobList(BaseModel):
@@ -141,6 +159,7 @@ class Job:
         self.error = None
         self.display_png = None
         self.heatmap_png = None
+        self.necrosis_heatmap_png = None
         self.created_at = now()
         self.cancer_type = None
         self.ranking = None  # (tile scores, tissue, tile_size, scale, mpp), kept so box changes skip the model
@@ -202,14 +221,22 @@ def run_job(job, job_id, slide, path, cfg, backend, store, job_dir, organ):
         np.savez(job_dir / "ranking.npz", probs=grid_probs, tissue=grid.tissue, tile_size=grid.tile_size,
                  scale=grid.scale, mpp=slide.mpp)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
-        job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
-        (job_dir / "heatmap.png").write_bytes(job.heatmap_png)
+        ranges = {}
+        for cls, name in (("tumor", "heatmap.png"), ("necrosis", "necrosis_heatmap.png")):
+            ranges[cls] = NECROSIS_RANGE if cls == "necrosis" else heatmap_range(grid_probs[..., classes.index(cls)])
+            data = png(class_heatmap(grid_probs, classes, cls, grid.tile_size, grid.scale, grid.display.size,
+                                     value_range=ranges[cls]))
+            setattr(job, name.replace(".", "_"), data)
+            (job_dir / name).write_bytes(data)
         result = Result(
             model=backend.name,
             organ=organ,
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
+            heatmap_range=HeatmapRange(low=ranges["tumor"][0], high=ranges["tumor"][1]),
+            necrosis_heatmap_url=f"/api/jobs/{job_id}/necrosis_heatmap.png",
+            necrosis_heatmap_range=HeatmapRange(low=ranges["necrosis"][0], high=ranges["necrosis"][1]),
             regions_url=f"/api/jobs/{job_id}/regions",
             measure_url=f"/api/jobs/{job_id}/measure",
             box_um=default_box_um(cfg),
@@ -337,12 +364,23 @@ def create_app(cfg=None, store=None):
                          daemon=True).start()
         return JobCreated(job_id=job_id)
 
+    def summarize(r):
+        result = r.result or {}
+        regions = result.get("regions") or []
+        best = regions[0]["composition"] if regions else {}
+        live = app.state.jobs.get(r.id)
+        progress = 1.0 if r.status == "done" else live.status_body().progress if live else 0.0
+        return JobSummary(
+            id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type,
+            organ=result.get("organ"), best_tumor=best.get("tumor"), best_necrosis=best.get("necrosis"),
+            n_regions=len(regions) if r.result else None, progress=progress,
+            best_box=[regions[0][k] for k in ("x", "y", "w", "h")] if regions else None,
+            image_size=[result["image"]["width"], result["image"]["height"]] if result.get("image") else None,
+        )
+
     @app.get("/api/jobs", response_model=JobList)
     def list_jobs():
-        return JobList(store=store.name, jobs=[
-            JobSummary(id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type)
-            for r in store.list()
-        ])
+        return JobList(store=store.name, jobs=[summarize(r) for r in store.list()])
 
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
@@ -376,6 +414,10 @@ def create_app(cfg=None, store=None):
     @app.get("/api/jobs/{job_id}/heatmap.png")
     def heatmap_png(request: Request, job_id: str):
         return get_png(request, job_id, "heatmap.png")
+
+    @app.get("/api/jobs/{job_id}/necrosis_heatmap.png")
+    def necrosis_heatmap_png(request: Request, job_id: str):
+        return get_png(request, job_id, "necrosis_heatmap.png")
 
     return app
 

@@ -68,6 +68,9 @@ def test_upload_runs_to_done_and_result_validates(client):
     assert result.regions and result.regions[0].is_best
     assert result.image.url == f"/api/jobs/{job_id}/display.png"
     assert result.heatmap_url == f"/api/jobs/{job_id}/heatmap.png"
+    assert 0.0 <= result.heatmap_range.low < result.heatmap_range.high <= 1.0
+    assert result.necrosis_heatmap_url == f"/api/jobs/{job_id}/necrosis_heatmap.png"
+    assert 0.0 <= result.necrosis_heatmap_range.low < result.necrosis_heatmap_range.high <= 1.0
     assert result.image.mpp_estimated is True
     assert sum(result.slide_composition.values()) == pytest.approx(1.0)
     for region in result.regions:
@@ -75,11 +78,20 @@ def test_upload_runs_to_done_and_result_validates(client):
         assert 0 <= region.y and region.y + region.h <= result.image.height
 
 
+def test_results_saved_before_heatmap_ranges_still_load(client):
+    # Postgres keeps old Result JSON; jobs stored before heatmap_range existed must still open from history.
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    new = ("heatmap_range", "necrosis_heatmap_url", "necrosis_heatmap_range")
+    old = Result.model_validate({k: v for k, v in body["result"].items() if k not in new})
+    assert old.heatmap_range is None and old.necrosis_heatmap_url is None and old.necrosis_heatmap_range is None
+
+
 def test_display_and_heatmap_pngs_are_served_at_display_size(client):
     job_id = upload(client, png_bytes(he_slide(2048, 1536))).json()["job_id"]
     body, _ = poll(client, job_id)
     w, h = body["result"]["image"]["width"], body["result"]["image"]["height"]
-    for name, mode in (("display.png", "RGB"), ("heatmap.png", "RGBA")):
+    for name, mode in (("display.png", "RGB"), ("heatmap.png", "RGBA"), ("necrosis_heatmap.png", "RGBA")):
         r = client.get(f"/api/jobs/{job_id}/{name}")
         assert r.status_code == 200 and r.headers["content-type"] == "image/png"
         img = Image.open(io.BytesIO(r.content))
@@ -137,6 +149,7 @@ def test_unknown_job_is_404(client):
     assert client.get("/api/jobs/nope").status_code == 404
     assert client.get("/api/jobs/nope/display.png").status_code == 404
     assert client.get("/api/jobs/nope/heatmap.png").status_code == 404
+    assert client.get("/api/jobs/nope/necrosis_heatmap.png").status_code == 404
 
 
 def test_blank_image_ends_in_error(client):
@@ -222,6 +235,46 @@ def test_jobs_list_is_newest_first_with_created_at_and_cancer_type(client):
         assert datetime.fromisoformat(j["created_at"]).tzinfo is not None
 
 
+def test_jobs_list_summarizes_each_case_for_the_worklist(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    job_id = client.post("/api/jobs", files={"file": ("slide.png", png_bytes(he_slide(4096, 3072)), "image/png")},
+                         data={"organ": "lung"}).json()["job_id"]
+    result = poll(client, job_id)[0]["result"]
+    best = result["regions"][0]
+
+    def summary(c):
+        return next(j for j in c.get("/api/jobs").json()["jobs"] if j["id"] == job_id)
+
+    for c in (client, TestClient(create_app(cfg, store=store))):  # live, and after a restart from the store
+        j = summary(c)
+        assert j["organ"] == "lung"
+        assert j["best_tumor"] == pytest.approx(best["composition"]["tumor"])
+        assert j["best_necrosis"] == pytest.approx(best["composition"]["necrosis"])
+        assert j["n_regions"] == len(result["regions"])
+        assert j["progress"] == 1.0
+        assert j["best_box"] == [best["x"], best["y"], best["w"], best["h"]]  # display px, for the thumbnail
+        assert j["image_size"] == [result["image"]["width"], result["image"]["height"]]
+
+
+def test_jobs_list_shows_progress_while_running_and_no_numbers_without_regions(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    job = Job("fake")
+    job.advance("analyzing", 0.4)
+    app.state.jobs["a" * 32] = job
+    app.state.store.create("a" * 32, "fake", cfg["prompt_set"])
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == "a" * 32)
+    assert (j["status"], j["progress"]) == ("running", 0.4)
+    assert (j["best_tumor"], j["best_necrosis"], j["n_regions"]) == (None, None, None)
+    assert (j["best_box"], j["image_size"]) == (None, None)
+
+    blank = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
+    poll(client, blank)
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == blank)
+    assert (j["status"], j["best_tumor"], j["n_regions"]) == ("error", None, None)
+
+
 def test_job_status_has_created_at_and_cancer_type(client):
     job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
     body, _ = poll(client, job_id)
@@ -234,7 +287,7 @@ def test_finished_job_survives_a_restart(cfg):
     before = TestClient(create_app(cfg, store=store))
     job_id = upload(before, png_bytes(he_slide(2048, 1536))).json()["job_id"]
     done, _ = poll(before, job_id)
-    pngs = {n: before.get(f"/api/jobs/{job_id}/{n}").content for n in ("display.png", "heatmap.png")}
+    pngs = {n: before.get(f"/api/jobs/{job_id}/{n}").content for n in ("display.png", "heatmap.png", "necrosis_heatmap.png")}
 
     after = TestClient(create_app(cfg, store=store))  # new process: empty memory, same store and disk
     body = after.get(f"/api/jobs/{job_id}").json()

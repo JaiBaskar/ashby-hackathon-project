@@ -1,15 +1,27 @@
-"""Region ranking, rule-based reasons and the tumor heatmap.
+"""Region ranking, rule-based reasons and the tumor and necrosis heatmaps.
 
 Score grids are indexed [row, col] = [y, x] (AGENTS.md §4); tiles that weren't analyzed are NaN.
 """
 
+import math
 import re
 
 import numpy as np
 from PIL import Image
 
-HEATMAP_RGB = (255, 196, 0)    # amber, far in hue from eosin and hematoxylin; opacity follows the tumor probability
-HEATMAP_MAX_ALPHA = 0.85
+# Overlay colors per class, one per band from weakest to strongest: tumor deep orange, necrosis blue, each getting darker
+# (and more opaque) as the probability rises. Mirrored by the frontend's heatmap key (SlideStage.tsx HEATMAP_KEYS).
+HEATMAP_RAMP = {
+    "tumor": [(251, 146, 60), (234, 108, 18), (194, 75, 10), (140, 50, 8)],
+    "necrosis": [(96, 165, 250), (37, 99, 235), (29, 63, 190), (23, 37, 120)],
+}
+HEATMAP_MAX_ALPHA = 0.65       # the strongest tint still lets the tissue show through
+HEATMAP_MIN_SPAN = 0.2         # the color scale covers at least this much probability, so noise isn't blown up
+HEATMAP_BANDS = 4              # steps over the color scale, so each shade on the key is one probability band
+# Necrosis uses the same scale on every slide: clear up to 5% (config low_necrosis, the "low necrosis" the reasons
+# name), then 10-point bands to 35%+. CONCH puts it near 0 on most slides, and a per-slide stretch would paint that
+# noise blue.
+NECROSIS_RANGE = (0.05, 0.45)
 
 
 def pct(fraction):
@@ -19,6 +31,11 @@ def pct(fraction):
 
 def parse_pct(text):
     return [int(m) for m in re.findall(r"(\d+)%", text)]
+
+
+def meets_minimum(fraction, min_pct):
+    """Compared as the screen shows it (rounded half up, like the frontend's meets()), so "20%" is never below 20%."""
+    return math.floor(fraction * 100 + 0.5) >= min_pct
 
 
 def tile_um(cfg):
@@ -57,7 +74,7 @@ def slide_composition(probs, classes):
     return {c: float(v) for c, v in zip(classes, mean)}
 
 
-def _candidates(probs, tissue, cfg):
+def eligible_windows(probs, tissue, cfg):
     """Every eligible N×N window, with its numbers."""
     n = cfg["region_tiles"]
     classes = cfg["classes"]
@@ -135,18 +152,27 @@ def _note(found, n_windows, cfg):
             f"on tissue, so {found} {are} shown instead of {top_k}.")
 
 
+def _below_minimum_note(top_tumor, cfg):
+    n = cfg["region_tiles"]
+    return (f"No {n}×{n}-tile region reaches the {cfg['min_tumor_pct']}% tumor minimum for sequencing "
+            f"(the most tumor-rich has {pct(top_tumor)}), so no regions are suggested.")
+
+
 def rank_regions(probs, tissue, cfg, tile_size, scale):
     """Top non-overlapping eligible regions, best first, and a note when fewer than top_k exist.
 
+    When no eligible window reaches min_tumor_pct, there are no regions and the note says so.
     probs: [rows, cols, n_classes] (NaN where a tile wasn't analyzed); tissue: [rows, cols] tissue fractions.
     tile_size is the tile edge in original pixels; scale is original pixels per display pixel.
     """
     n = cfg["region_tiles"]
     rows, cols = tissue.shape
     n_windows = max(0, rows - n + 1) * max(0, cols - n + 1)
-    candidates = _candidates(probs, tissue, cfg)
-    picked = _pick(candidates, n, cfg["top_k"])
+    candidates = eligible_windows(probs, tissue, cfg)
     top_tumor = max((d["composition"]["tumor"] for d in candidates), default=0.0)
+    if candidates and not meets_minimum(top_tumor, cfg["min_tumor_pct"]):
+        return [], _below_minimum_note(top_tumor, cfg)
+    picked = _pick(candidates, n, cfg["top_k"])
 
     px = tile_size / scale
     for i, region in enumerate(picked):
@@ -219,17 +245,59 @@ def measure_box(probs, tissue, cfg, tile_size, scale, mpp, x, y, w, h):
     }
 
 
-def tumor_heatmap(probs, classes, tile_size, scale, display_size):
-    """Transparent RGBA overlay at display size: each analyzed tile tinted with opacity ∝ its tumor probability."""
-    tumor = probs[..., classes.index("tumor")]
-    rows, cols = tumor.shape
-    small = np.zeros((rows, cols, 4), np.uint8)
-    small[..., :3] = HEATMAP_RGB
-    small[..., 3] = np.where(np.isnan(tumor), 0, np.round(np.nan_to_num(tumor) * HEATMAP_MAX_ALPHA * 255))
+def heatmap_range(values):
+    """(low, high) class probability the heatmap's color scale spans: the slide's 5th–95th percentile,
+    widened around its middle to at least HEATMAP_MIN_SPAN and kept within [0, 1]."""
+    values = np.asarray(values, float)
+    values = values[~np.isnan(values)]
+    if values.size == 0:
+        return 0.0, 1.0
+    lo, hi = np.percentile(values, [5, 95])
+    span = max(hi - lo, HEATMAP_MIN_SPAN)
+    lo = min(max((lo + hi) / 2 - span / 2, 0.0), 1.0 - span)
+    return float(lo), float(lo + span)
+
+
+def _upsample(channel, size):
+    """Bicubic resize of a float grid, so values blend between tile centers instead of stepping at tile edges."""
+    return np.asarray(Image.fromarray(channel.astype(np.float32), "F").resize(size, Image.BICUBIC))
+
+
+def _smoothstep(x, lo, hi):
+    t = np.clip((x - lo) / (hi - lo), 0, 1)
+    return t * t * (3 - 2 * t)
+
+
+def class_heatmap(probs, classes, cls, tile_size, scale, display_size, value_range=None):
+    """Transparent RGBA overlay at display size, in cls's HEATMAP_RAMP colors following its probability.
+
+    The overlay is clear below value_range's low end (default: heatmap_range of this slide, so differences within a
+    slide stay visible) and rises in HEATMAP_BANDS equal steps to its high end, each step darker in color and
+    stronger in opacity, up to HEATMAP_MAX_ALPHA. Values are interpolated
+    smoothly between tile centers, so the bands have rounded outlines instead of tile-sized squares, and the overlay
+    fades out smoothly at the tissue's edge.
+    """
+    values = probs[..., classes.index(cls)]
+    lo, hi = value_range or heatmap_range(values)
     px = tile_size / scale
-    overlay = Image.fromarray(small, "RGBA").resize(
-        (max(1, round(cols * px)), max(1, round(rows * px))), Image.NEAREST
-    )
+    # Only whole tiles are cut, so the grid can stop short of the image's right and bottom edges. Treat that strip
+    # as unanalyzed (one NaN column/row), so the overlay fades into it instead of ending in a hard line.
+    pad_x = int(round(values.shape[1] * px) < display_size[0])
+    pad_y = int(round(values.shape[0] * px) < display_size[1])
+    values = np.pad(values, ((0, pad_y), (0, pad_x)), constant_values=np.nan)
+    rows, cols = values.shape
+    analyzed = ~np.isnan(values)
+    size = (max(1, round(cols * px)), max(1, round(rows * px)))
+
+    weight = _upsample(analyzed.astype(float), size)
+    # Normalized interpolation: tiles that weren't analyzed carry no weight, rather than pulling values toward 0.
+    value = _upsample(np.where(analyzed, values, 0.0), size) / np.maximum(weight, 1e-6)
+    band = np.ceil(np.clip((value - lo) / (hi - lo), 0, 1) * HEATMAP_BANDS).astype(int)   # 0 = clear
+    alpha = HEATMAP_MAX_ALPHA * band / HEATMAP_BANDS * _smoothstep(weight, 0.25, 0.75)
+
+    small = np.zeros((size[1], size[0], 4), np.uint8)
+    small[..., :3] = np.array([(0, 0, 0), *HEATMAP_RAMP[cls]], np.uint8)[band]
+    small[..., 3] = np.round(alpha * 255)
     canvas = Image.new("RGBA", display_size, (0, 0, 0, 0))
-    canvas.paste(overlay, (0, 0))
+    canvas.paste(Image.fromarray(small, "RGBA"), (0, 0))
     return canvas

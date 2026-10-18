@@ -75,7 +75,14 @@ describe.each([
     ['ink-muted', 'surface'],
     ['accent-ink', 'accent'],
     ['accent-strong', 'surface'],
+    ['accent-strong', 'canvas'],
     ['danger', 'surface'],
+    ['eosin-strong', 'surface'],
+    ['ok', 'surface'],
+    ['warn', 'surface'],
+    ['stage-ink', 'stage'],
+    ['stage-muted', 'stage'],
+    ['stage-ink', 'stage-raised'],
   ])('%s on %s is at least 4.5:1', (fg, bg) => {
     expect(contrastRatio(color(t, fg), color(t, bg))).toBeGreaterThanOrEqual(4.5)
   })
@@ -87,7 +94,7 @@ describe.each([
 
 test('dark mode redefines every chrome color', () => {
   const darkOnly = tokens(blockAfter('@media (prefers-color-scheme: dark)'))
-  for (const name of ['canvas', 'surface', 'ink', 'ink-muted', 'line', 'accent', 'accent-strong', 'focus']) {
+  for (const name of ['canvas', 'surface', 'ink', 'ink-muted', 'line', 'accent', 'accent-strong', 'focus', 'eosin-strong', 'ok', 'warn']) {
     expect(darkOnly[`--color-${name}`], name).toBeDefined()
   }
 })
@@ -110,4 +117,18 @@ test('no one-off hex colors in components', () => {
     }
   }
   expect(offenders).toEqual([])
+})
+
+// The slide stage is dark in both themes (DESIGN.md, "Stage"), so its tokens never change with the theme.
+test('the stage looks the same in both themes', () => {
+  const darkOnly = tokens(blockAfter('@media (prefers-color-scheme: dark)'))
+  for (const name of ['stage', 'stage-raised', 'stage-ink', 'stage-muted', 'stage-line']) {
+    expect(light[`--color-${name}`], name).toBeDefined()
+    expect(darkOnly[`--color-${name}`], name).toBeUndefined()
+  }
+})
+
+// The focus ring must also show on the dark stage and header.
+test('the stage focus ring reaches 3:1 on the stage', () => {
+  expect(contrastRatio(color(light, 'stage-focus'), color(light, 'stage'))).toBeGreaterThanOrEqual(3)
 })

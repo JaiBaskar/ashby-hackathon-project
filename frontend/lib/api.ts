@@ -27,6 +27,11 @@ export interface Result {
   organ?: string | null
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
+  // Tumor probability at the overlay's clear and strongest ends; null for cases saved before it existed.
+  heatmap_range?: { low: number; high: number } | null
+  // The same for necrosis; both null for cases saved before the necrosis heatmap existed.
+  necrosis_heatmap_url?: string | null
+  necrosis_heatmap_range?: { low: number; high: number } | null
   regions_url: string
   measure_url: string
   box_um: number
@@ -78,6 +83,13 @@ export interface JobSummary {
   status: 'running' | 'done' | 'error'
   model: string
   cancer_type: string | null
+  organ?: string | null
+  best_tumor?: number | null // region 1's tumor fraction
+  best_necrosis?: number | null
+  n_regions?: number | null
+  progress?: number
+  best_box?: [number, number, number, number] | null // region 1, display px
+  image_size?: [number, number] | null
 }
 
 export interface JobList {

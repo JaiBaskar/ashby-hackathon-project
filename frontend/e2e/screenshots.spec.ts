@@ -27,9 +27,9 @@ for (const width of WIDTHS) {
     test.describe(`${width} px, ${theme}`, () => {
       test.use({ viewport: { width, height: width < 768 ? 812 : 900 }, colorScheme: theme })
 
-      test('home, upload, analyzing, results and error screens', async ({ page }) => {
+      test('worklist, upload, analyzing, results, sampling sheet and error screens', async ({ page }) => {
         await page.goto('/')
-        await shoot(page, 'home', width, theme)
+        await shoot(page, 'worklist-empty', width, theme)
 
         await chooseFile(page, fixture('slide'))
         await shoot(page, 'upload', width, theme)
@@ -56,17 +56,24 @@ for (const width of WIDTHS) {
         await shoot(page, 'results', width, theme)
         await page.getByRole('switch', { name: 'Tumor heatmap' }).click()
         await expect(page.getByTestId('heatmap')).toBeVisible()
+        await page.getByRole('switch', { name: 'Necrosis heatmap' }).click()
+        await expect(page.getByTestId('necrosis-heatmap')).toBeVisible()
+        await expect(page.getByTestId('necrosis-key')).toBeVisible()
         await page.getByRole('button', { name: /^Region 3:/ }).click()
         await shoot(page, 'results-heatmap', width, theme)
+        const jobUrl = page.url()
+        await page.goto(`${jobUrl}/sheet`)
+        await expect(page.getByTestId('sheet-instruction')).toContainText('Macrodissect')
+        await shoot(page, 'sheet', width, theme)
 
         await chooseFile(page, fixture('blank'))
         await page.getByRole('button', { name: 'Analyze slide' }).click()
         await expect(page.getByText('No tissue found in this image.')).toBeVisible({ timeout: 30_000 })
         await shoot(page, 'error', width, theme)
 
-        await page.goto('/history')
-        await expect(page.getByRole('link', { name: /Analysis/ }).first()).toBeVisible()
-        await shoot(page, 'history', width, theme)
+        await page.goto('/')
+        await expect(page.getByRole('link', { name: /^Open case/ }).first()).toBeVisible()
+        await shoot(page, 'worklist', width, theme)
       })
     })
   }

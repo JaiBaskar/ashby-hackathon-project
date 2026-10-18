@@ -11,7 +11,7 @@ REQUIRED_KEYS = [
     "model", "seed", "classes", "organs", "default_organ", "prompt_set", "prompt_sets",
     "tile_px", "target_mpp", "default_mpp", "max_display_px", "max_upload_mb", "max_tiles",
     "tissue_min_saturation", "tissue_threshold", "batch_size",
-    "region_tiles", "box_sizes_um", "min_coverage", "top_k", "weights", "reason_cutoffs", "paths", "tcga",
+    "region_tiles", "box_sizes_um", "min_coverage", "min_tumor_pct", "top_k", "weights", "reason_cutoffs", "paths", "tcga",
 ]
 
 
