@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { pct } from '@/lib/format'
 import SlideViewer from './SlideViewer'
 import { button } from './ui'
@@ -28,9 +28,36 @@ function HeatmapLegend({ range }: { range?: { low: number; high: number } | null
   )
 }
 
-// The dark "scope" the slide sits on: a toolbar, then a scrollable viewport. Zooming makes the slide
-// wider than the viewport and you scroll (or trackpad-pan) around it; boxes and drawing keep working
-// because they measure the image as it's drawn.
+const VIEWPORT_VH = 0.78 // the viewport's max-h-[78vh] below, as a fraction of the window
+
+// The slide width (px) at which the whole slide fits in the viewport: its full width, or less for a slide
+// tall enough that its full width would overflow the viewport's max height. Null until measured.
+function useFitWidth(viewport: React.RefObject<HTMLDivElement | null>, aspect: number) {
+  const [fit, setFit] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const v = viewport.current
+    if (!v) return
+    const measure = () => {
+      const pad = getComputedStyle(v)
+      const w = v.clientWidth - parseFloat(pad.paddingLeft) - parseFloat(pad.paddingRight)
+      const h = window.innerHeight * VIEWPORT_VH - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom)
+      setFit(w > 0 && h > 0 ? Math.floor(Math.min(w, h * aspect)) : null)
+    }
+    measure()
+    window.addEventListener('resize', measure)
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(v)
+    return () => {
+      window.removeEventListener('resize', measure)
+      observer?.disconnect()
+    }
+  }, [viewport, aspect])
+  return fit
+}
+
+// The dark "scope" the slide sits on: a toolbar, then a scrollable viewport. At 100% (Fit) the whole slide
+// fits in the viewport; zooming makes it bigger and you scroll (or trackpad-pan) around it. Boxes and
+// drawing keep working because they measure the image as it's drawn.
 export default function SlideStage({
   viewer,
   zoom,
@@ -55,6 +82,8 @@ export default function SlideStage({
   const viewport = useRef<HTMLDivElement>(null)
   const anchor = useRef<{ fx: number; fy: number; mx: number; my: number } | null>(null)
   const latestZoom = useRef(zoom)
+  const { image } = viewer.result
+  const fit = useFitWidth(viewport, image.width / image.height)
   useEffect(() => void (latestZoom.current = zoom))
 
   // Keep the point under the pointer (or the middle of the view) in place while zooming.
@@ -141,7 +170,7 @@ export default function SlideStage({
         </div>
       </div>
       <div ref={viewport} data-testid="stage-viewport" className="relative max-h-[78vh] overflow-auto overscroll-contain p-3 sm:p-4">
-        <div data-testid="stage-canvas" style={{ width: `${zoom * 100}%` }} className="relative">
+        <div data-testid="stage-canvas" style={{ width: fit ? `${Math.round(zoom * fit)}px` : `${zoom * 100}%` }} className="relative mx-auto">
           <SlideViewer {...viewer} heatmapOpacity={heatmapOpacity / 100} />
         </div>
       </div>
