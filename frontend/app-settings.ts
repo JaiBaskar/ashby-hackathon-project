@@ -4,7 +4,8 @@ import path from 'node:path'
 // The few config.yaml values the frontend needs. Read by next.config.ts (build/dev) and vitest.config.mts
 // (tests), so both see the same numbers. Node-only: the browser gets them through next.config's `env`.
 export function readAppSettings(frontendDir: string) {
-  const config = readFileSync(path.join(frontendDir, '..', 'config.yaml'), 'utf8')
+  // Windows checkouts (git core.autocrlf) have CRLF line endings; the block regexes below expect "\n".
+  const config = readFileSync(path.join(frontendDir, '..', 'config.yaml'), 'utf8').replace(/\r\n/g, '\n')
   const num = (key: string) => {
     const v = Number(new RegExp(`^${key}:\\s*([\\d.]+)`, 'm').exec(config)?.[1])
     if (!v) throw new Error(`config.yaml needs ${key}`)
