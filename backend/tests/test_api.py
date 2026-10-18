@@ -222,6 +222,43 @@ def test_jobs_list_is_newest_first_with_created_at_and_cancer_type(client):
         assert datetime.fromisoformat(j["created_at"]).tzinfo is not None
 
 
+def test_jobs_list_summarizes_each_case_for_the_worklist(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    job_id = client.post("/api/jobs", files={"file": ("slide.png", png_bytes(he_slide(4096, 3072)), "image/png")},
+                         data={"organ": "lung"}).json()["job_id"]
+    result = poll(client, job_id)[0]["result"]
+    best = result["regions"][0]
+
+    def summary(c):
+        return next(j for j in c.get("/api/jobs").json()["jobs"] if j["id"] == job_id)
+
+    for c in (client, TestClient(create_app(cfg, store=store))):  # live, and after a restart from the store
+        j = summary(c)
+        assert j["organ"] == "lung"
+        assert j["best_tumor"] == pytest.approx(best["composition"]["tumor"])
+        assert j["best_necrosis"] == pytest.approx(best["composition"]["necrosis"])
+        assert j["n_regions"] == len(result["regions"])
+        assert j["progress"] == 1.0
+
+
+def test_jobs_list_shows_progress_while_running_and_no_numbers_without_regions(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    job = Job("fake")
+    job.advance("analyzing", 0.4)
+    app.state.jobs["a" * 32] = job
+    app.state.store.create("a" * 32, "fake", cfg["prompt_set"])
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == "a" * 32)
+    assert (j["status"], j["progress"]) == ("running", 0.4)
+    assert (j["best_tumor"], j["best_necrosis"], j["n_regions"]) == (None, None, None)
+
+    blank = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
+    poll(client, blank)
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == blank)
+    assert (j["status"], j["best_tumor"], j["n_regions"]) == ("error", None, None)
+
+
 def test_job_status_has_created_at_and_cancer_type(client):
     job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
     body, _ = poll(client, job_id)
