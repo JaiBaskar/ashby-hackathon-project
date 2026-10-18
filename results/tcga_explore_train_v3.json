@@ -1,0 +1,64 @@
+{
+  "split": "train",
+  "n_slides": 100,
+  "n_hospitals": 12,
+  "n_below_cutoff": 69,
+  "cv": "leave-one-hospital-out",
+  "seed": 1234,
+  "methods": {
+    "dummy": {
+      "mae": 17.54,
+      "pearson_r": -0.4312957518731055,
+      "catch_rate": 1.0,
+      "within_hospital_r": NaN,
+      "between_hospital_r": -0.6862801595071537,
+      "n_hospitals_within": 11
+    },
+    "mean_tumor_prob": {
+      "mae": 17.794235369007325,
+      "pearson_r": -0.43296678596654503,
+      "catch_rate": 1.0,
+      "within_hospital_r": -0.06626767854976656,
+      "between_hospital_r": -0.7721601149243412,
+      "n_hospitals_within": 11
+    },
+    "tumor_tile_share": {
+      "mae": 17.804251237199686,
+      "pearson_r": -0.43673482701536864,
+      "catch_rate": 1.0,
+      "within_hospital_r": -0.06820842837458102,
+      "between_hospital_r": -0.7705737684879195,
+      "n_hospitals_within": 11
+    },
+    "tumor_vs_cells": {
+      "mae": 17.839088239169715,
+      "pearson_r": -0.4044566528077385,
+      "catch_rate": 1.0,
+      "within_hospital_r": 0.008914269025981388,
+      "between_hospital_r": -0.6849396146156922,
+      "n_hospitals_within": 11
+    },
+    "ridge_embedding": {
+      "mae": 11.444392054801273,
+      "pearson_r": 0.7259219111928492,
+      "catch_rate": 0.9855072463768116,
+      "within_hospital_r": 0.6402104413097465,
+      "between_hospital_r": 0.9299622670663243,
+      "n_hospitals_within": 11
+    },
+    "pathologist": {
+      "mae": 36.4,
+      "pearson_r": 0.11480654923750641,
+      "catch_rate": 0.13043478260869565,
+      "within_hospital_r": 0.09860879528772319,
+      "between_hospital_r": 0.10875290576084319,
+      "n_hospitals_within": 11
+    }
+  },
+  "shuffled_labels": {
+    "ridge_embedding_mae": 17.95891600703834,
+    "dummy_mae": 17.87
+  },
+  "organ": "lung",
+  "prompt_set": "v3"
+}

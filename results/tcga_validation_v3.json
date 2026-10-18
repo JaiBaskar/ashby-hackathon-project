@@ -1,0 +1,156 @@
+{
+  "question": "Does the app's whole-slide tumor % track ABSOLUTE purity better than the pathologist's %?",
+  "split": "test",
+  "n_slides": 150,
+  "n_hospitals": 15,
+  "n_below_cutoff": 113,
+  "n_test_slides_without_app_score": 0,
+  "catch_cutoff": 60,
+  "mapping": {
+    "slope": -0.017836629499432738,
+    "intercept": 47.6474249127496,
+    "fit_on": "train",
+    "n_slides": 100
+  },
+  "pathologist_mapping": {
+    "slope": 0.1229709157873029,
+    "intercept": 36.901908661542976,
+    "fit_on": "train",
+    "n_slides": 100
+  },
+  "methods": {
+    "pathologist": {
+      "mae": 34.126666666666665,
+      "pearson_r": 0.2313068485576946,
+      "catch_rate": 0.10619469026548672,
+      "within_hospital_r": 0.20884356234158152,
+      "between_hospital_r": 0.20613902518734373,
+      "n_hospitals_within": 12
+    },
+    "pathologist_calibrated": {
+      "mae": 13.064065439209642,
+      "pearson_r": 0.23130684855769457,
+      "catch_rate": 1.0,
+      "within_hospital_r": 0.20884356234158147,
+      "between_hospital_r": 0.2061390251873449,
+      "n_hospitals_within": 12
+    },
+    "app_raw": {
+      "mae": 18.35026006802295,
+      "pearson_r": 0.32411558501581106,
+      "catch_rate": 0.6548672566371682,
+      "within_hospital_r": 0.25924028517763403,
+      "between_hospital_r": 0.5635249195065435,
+      "n_hospitals_within": 12
+    },
+    "app_calibrated": {
+      "mae": 13.568011913736418,
+      "pearson_r": -0.3241155850158112,
+      "catch_rate": 1.0,
+      "within_hospital_r": -0.2592402851776342,
+      "between_hospital_r": -0.5635249195065394,
+      "n_hospitals_within": 12
+    },
+    "dummy": {
+      "mae": 13.9,
+      "pearson_r": NaN,
+      "catch_rate": 1.0,
+      "within_hospital_r": NaN,
+      "between_hospital_r": NaN,
+      "n_hospitals_within": 12
+    },
+    "app_ridge_embedding": {
+      "mae": 11.58543618981674,
+      "pearson_r": 0.48536999013411053,
+      "catch_rate": 0.9469026548672567,
+      "within_hospital_r": 0.48774171473438643,
+      "between_hospital_r": 0.4777418958553687,
+      "n_hospitals_within": 12
+    }
+  },
+  "bootstrap": {
+    "pathologist_calibrated": {
+      "diff": 21.062601227457023,
+      "ci_low": 17.551503886275743,
+      "ci_high": 24.3357076685113,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "pathologist MAE \u2212 app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
+    },
+    "app_raw": {
+      "diff": 15.776406598643714,
+      "ci_low": 12.161147367885924,
+      "ci_high": 19.491642469651637,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "pathologist MAE \u2212 app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
+    },
+    "app_calibrated": {
+      "diff": 20.558654752930245,
+      "ci_low": 16.914900898286803,
+      "ci_high": 23.91103854627697,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "pathologist MAE \u2212 app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
+    },
+    "dummy": {
+      "diff": 20.226666666666667,
+      "ci_low": 16.3385,
+      "ci_high": 23.84033333333333,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "pathologist MAE \u2212 app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
+    },
+    "app_ridge_embedding": {
+      "diff": 22.541230476849925,
+      "ci_low": 19.1538647479044,
+      "ci_high": 25.73032882319047,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "pathologist MAE \u2212 app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
+    }
+  },
+  "seed": 1234,
+  "chosen_method": "ridge_embedding",
+  "predictions_fingerprint": "93e7f4260a3bf2f3",
+  "bootstrap_vs_dummy": {
+    "app_ridge_embedding": {
+      "diff": 2.3145638101832606,
+      "ci_low": 1.1795282476937108,
+      "ci_high": 3.5136412125171588,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "dummy MAE \u2212 method MAE in points (> 0: method beats always guessing the train median)"
+    }
+  },
+  "bootstrap_vs_pathologist_calibrated": {
+    "app_ridge_embedding": {
+      "diff": 1.4786292493929025,
+      "ci_low": 0.35794190651254076,
+      "ci_high": 2.6216479378093442,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "bias-corrected pathologist MAE \u2212 method MAE in points (> 0: method closer to ABSOLUTE even after removing the pathologists' systematic over-estimate; correction fit on train)"
+    }
+  },
+  "bootstrap_r_vs_pathologist": {
+    "app_ridge_embedding": {
+      "diff": 0.25406314157641596,
+      "ci_low": 0.08510498639259269,
+      "ci_high": 0.4252904512203704,
+      "n": 1000,
+      "verdict": "better",
+      "meaning": "method Pearson r \u2212 pathologist Pearson r (> 0: method ranks slides by ABSOLUTE purity better); unaffected by the pathologists' bias"
+    }
+  },
+  "project": "TCGA-LUAD",
+  "slide_kinds": [
+    "TS",
+    "BS"
+  ],
+  "model": [
+    "conch"
+  ],
+  "organ": "lung",
+  "prompt_set": "v3"
+}

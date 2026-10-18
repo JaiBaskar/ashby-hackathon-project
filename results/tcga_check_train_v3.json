@@ -1,0 +1,30 @@
+{
+  "split": "train",
+  "n_slides": 100,
+  "n_hospitals": 12,
+  "n_below_cutoff": 69,
+  "pathologist": {
+    "pearson_r": 0.11480654923750641,
+    "mae": 36.4,
+    "min": 0.0,
+    "median": 85.0,
+    "max": 100.0
+  },
+  "app_raw": {
+    "pearson_r": -0.01940841594883131,
+    "mae": 23.39265851790058,
+    "min": 1.9151745252688743,
+    "median": 49.49864099300524,
+    "max": 95.40750311103302
+  },
+  "truth": {
+    "min": 13.0,
+    "median": 43.0,
+    "max": 90.0
+  },
+  "organ": "lung",
+  "prompt_set": "v3",
+  "model": [
+    "conch"
+  ]
+}
