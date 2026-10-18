@@ -32,10 +32,10 @@ test('with no cases, says so and offers a new case', async () => {
   expect(screen.getAllByRole('link', { name: /new case/i })[0]).toHaveAttribute('href', '/upload')
 })
 
-test('warns when the history is only kept in memory', async () => {
+test('shows no storage notice when the history is only kept in memory', async () => {
   fetchMock.mockResolvedValue(jsonResponse({ store: 'memory', jobs: [] }))
   render(await WorklistPage())
-  expect(screen.getByText(/isn't saved: no database is configured/)).toBeInTheDocument()
+  expect(screen.queryByText(/isn't saved/)).not.toBeInTheDocument()
 })
 
 test('an API error is thrown to the error page', async () => {

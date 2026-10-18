@@ -75,13 +75,6 @@ export default function Worklist({ initial, timeZone }: { initial: JobList; time
         </Link>
       </div>
 
-      {list.store === 'memory' && (
-        <p className="mt-5 rounded-md border border-warn/40 bg-warn/10 px-4 py-3 text-sm text-ink">
-          This list isn&apos;t saved: no database is configured, so it empties when the server restarts. Labels, notes and
-          reviewed ticks are kept in this browser either way.
-        </p>
-      )}
-
       {list.jobs.length === 0 ? (
         <EmptyBench />
       ) : (
