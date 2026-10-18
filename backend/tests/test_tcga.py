@@ -353,3 +353,19 @@ def test_evaluate_compares_ranking_and_the_calibrated_pathologist(cfg):
     c = out["bootstrap_vs_pathologist_calibrated"]["app_ridge_embedding"]
     assert c["diff"] == pytest.approx(out["methods"]["pathologist_calibrated"]["mae"]
                                       - out["methods"]["app_ridge_embedding"]["mae"])
+
+
+def test_report_quotes_the_results_file_exactly(cfg):
+    from project.tcga_report import render
+
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    out.update(project="TCGA-LUAD", slide_kinds=["TS", "BS"], model=["conch"], organ="lung", prompt_set="v3")
+    text = render(out)
+    m = out["methods"]["app_ridge_embedding"]
+    assert f"| {m['mae']:.1f} | {m['pearson_r']:.2f} |" in text
+    b = out["bootstrap_r_vs_pathologist"]["app_ridge_embedding"]
+    assert f"{b['diff']:.2f} ({b['ci_low']:.2f} to {b['ci_high']:.2f}) | {b['verdict']}" in text
+    assert f"{out['n_slides']} slides from {out['n_hospitals']} hospitals" in text

@@ -27,6 +27,8 @@ All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 
 ## TCGA validation (Phase 8)
 
+**Result:** see [reports/tcga_validation.md](reports/tcga_validation.md), generated from `results/tcga_validation_v3.json` by `python -m project.tcga_report`.
+
 Does the app's whole-slide tumor % (`slide_composition.tumor` × 100, real CONCH) track ABSOLUTE purity better than the pathologist's recorded %? Code: `backend/project/tcga.py`, `labels.py`, `gdc.py`; settings under `tcga:` in `config.yaml`. It uses TCGA-LUAD frozen slides (TS/BS), because that's where the pathologist's % was recorded, and splits by hospital (tissue source site), never by slide.
 
 On Delta, from the repo root. Commands marked **approval** spend GPU hours or download a lot: a human approves each one first.

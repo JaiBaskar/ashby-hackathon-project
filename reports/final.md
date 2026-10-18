@@ -50,6 +50,10 @@ Synthetic fixtures only. Every screen at 375 and 1440 px, in light and dark, in 
 - Results with heatmap, region 3 selected: [1440 light](screenshots/results-heatmap-1440-light.png), [1440 dark](screenshots/results-heatmap-1440-dark.png)
 - Error: [1440 dark](screenshots/error-1440-dark.png), [375 light](screenshots/error-375-light.png)
 
+## Phase 8: TCGA validation
+
+The tumor-purity validation on TCGA lung frozen slides (held-out hospitals, DNA-measured truth, bootstrap intervals, independent recheck) is in [tcga_validation.md](tcga_validation.md), generated from `results/` by code.
+
 ## Known limitations
 
 - **No real-model result yet.** Everything above ran on the demo model, which scores tiles by mean color. Its regions are not evidence of anything about tumor.
