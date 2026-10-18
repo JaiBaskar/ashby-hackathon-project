@@ -24,10 +24,10 @@ export const test = base.extend<{ consoleErrors: string[] }>({
 
 export { expect }
 
-// Home → upload screen → pick a file → submit. Returns the job id from the URL.
+// Worklist → New case → pick a file → submit. Returns the job id from the URL.
 export async function uploadFromHome(page: Page, file: string) {
   await page.goto('/')
-  await page.getByRole('link', { name: 'Analyze a slide' }).click()
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'New case' }).click()
   await expect(page).toHaveURL(/\/upload$/)
   await page.locator('input[type="file"]').setInputFiles(file)
   await page.getByRole('button', { name: 'Analyze slide' }).click()
@@ -36,3 +36,6 @@ export async function uploadFromHome(page: Page, file: string) {
 }
 
 export const regionBoxes = (page: Page) => page.getByRole('button', { name: /^Region \d/ })
+
+// The results workspace is ready once its region table is on screen.
+export const resultsReady = (page: Page) => expect(page.getByRole('table', { name: 'Regions' })).toBeVisible({ timeout: 30_000 })

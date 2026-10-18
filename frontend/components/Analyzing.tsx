@@ -67,7 +67,7 @@ export default function Analyzing({ id, status }: { id?: string; status: JobStat
                   key={i}
                   data-testid="preview-tile"
                   data-lit={i < lit}
-                  className={`border-[0.5px] border-stage/40 transition-colors duration-slow ${i < lit ? 'bg-transparent' : 'bg-stage/55'}`}
+                  className={`border-[0.5px] transition-colors duration-slow ${i < lit ? 'border-transparent bg-transparent' : 'border-stage/40 bg-stage/55'}`}
                 />
               ))}
             </div>

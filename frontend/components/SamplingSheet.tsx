@@ -132,8 +132,9 @@ export default function SamplingSheet({
             )}
             {mmPx && (
               <div className="absolute right-3 bottom-3 text-right">
-                <div data-testid="scale-bar" style={{ width: percent(mmPx, width) }} className="ml-auto border-x-2 border-b-2 border-box-other pt-1.5 text-center">
-                  <span className="relative -top-5 font-mono text-[10px] font-semibold text-box-other">1 mm</span>
+                <div data-testid="scale-bar" style={{ width: percent(mmPx, width) }} className="ml-auto text-center">
+                  <span className="mb-1 inline-block rounded-[2px] bg-box-outline px-1 font-mono text-[10px] font-semibold text-box-other">1 mm</span>
+                  <span aria-hidden className="block h-1.5 border-x-2 border-b-2 border-box-outline" />
                 </div>
               </div>
             )}
@@ -144,7 +145,8 @@ export default function SamplingSheet({
           </figcaption>
         </figure>
 
-        <table aria-label="Regions" className="mt-6 w-full border-collapse text-sm">
+        <div className="mt-6 overflow-x-auto print:overflow-visible">
+        <table aria-label="Regions" className="w-full min-w-[30rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-ink text-left text-xs uppercase tracking-wide text-ink-muted">
               <th className="py-1.5 pr-3 font-medium">Region</th>
@@ -183,6 +185,7 @@ export default function SamplingSheet({
             )}
           </tbody>
         </table>
+        </div>
         <p className="mt-2 text-xs text-ink-muted">
           Minimum tumor fraction for sequencing: <span className="num">{threshold}%</span>. Fractions are estimated from tile
           classification, not cell counts.

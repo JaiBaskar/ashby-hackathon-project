@@ -45,14 +45,10 @@ export default function CaseBar({
         </Link>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
           <h1 className="text-xl font-semibold tracking-tight">
-            <label htmlFor={field} className="sr-only">
-              Case label
-            </label>
-            <span aria-hidden className="mr-2 text-ink-muted">
-              Case
-            </span>
+            <span className="mr-2 text-ink-muted">Case</span>
             <input
               id={field}
+              aria-label="Case label"
               value={label}
               onChange={(e) => onLabel(e.target.value)}
               placeholder="add a label"

@@ -274,7 +274,8 @@ function Thumb({ job }: { job: JobSummary }) {
     <div data-testid="thumb" className="relative row-span-2 flex aspect-[7/3] items-center overflow-hidden rounded-sm bg-stage p-1 sm:row-span-1">
       <span aria-hidden className="h-full w-3 shrink-0 rounded-[2px] bg-eosin/80" />
       <div className="relative ml-1 h-full flex-1">
-        {job.status !== 'error' && (
+        {/* The display image exists from the tiling step on (progress 0.15); asking earlier is a 404. */}
+        {(job.status === 'done' || (job.status === 'running' && (job.progress ?? 0) >= 0.15)) && (
           <div className="relative mx-auto h-full" style={{ aspectRatio: `${w} / ${h}` }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/jobs/${job.id}/display.png`} alt="" loading="lazy" className="h-full w-full object-contain" />

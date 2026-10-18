@@ -200,11 +200,12 @@ export default function UploadForm() {
                       onChange={(e) => update(item.key, { label: e.target.value })}
                       disabled={item.state === 'sending' || item.state === 'sent'}
                       aria-label={`Case label for ${item.file.name}`}
-                      placeholder="Case label (stays on this computer)"
+                      placeholder="Case label, optional"
                       spellCheck={false}
                       className="h-8 w-full max-w-64 rounded-sm border border-line-strong bg-canvas px-2 font-mono text-sm text-ink placeholder:font-sans placeholder:text-xs placeholder:text-ink-muted"
                     />
                   </label>
+                  <p className="mt-1 text-[11px] text-ink-muted">Labels stay on this computer.</p>
                   {item.state === 'failed' && (
                     <p role="alert" className="mt-1 text-sm text-danger">
                       {item.error}
