@@ -32,6 +32,10 @@ export const settings = {
   defaultMpp: Number(process.env.DEFAULT_MPP),
   organs: (process.env.ORGANS ?? '').split(',').filter(Boolean),
   defaultOrgan: process.env.DEFAULT_ORGAN ?? '',
+  scoreWeights: {
+    necrosis: Number(process.env.SCORE_WEIGHT_NECROSIS),
+    variation: Number(process.env.SCORE_WEIGHT_VARIATION),
+  },
 }
 
 // Display names for config.yaml's organs. The backend picks that organ's CONCH prompts.

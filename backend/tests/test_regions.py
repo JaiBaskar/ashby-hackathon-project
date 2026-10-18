@@ -186,6 +186,60 @@ def test_unanalyzed_tiles_are_left_out_of_composition(cfg):
     assert regions[0]["composition"]["tumor"] == pytest.approx(0.5)
 
 
+# --- minimum tumor for sequencing: no region reaches it → no regions, and the note says so -------
+
+def test_minimum_tumor_is_twenty_percent_in_config(cfg):
+    assert cfg["min_tumor_pct"] == 20  # matches the results screen's default (frontend DEFAULT_THRESHOLD)
+
+
+def test_no_region_reaching_the_minimum_gives_no_regions_and_says_so(cfg):
+    probs = grid(cfg, 16, 16, tumor=0.1)
+    regions, note = rank(cfg, probs, full_tissue(16, 16))
+    assert regions == []
+    assert "20% tumor minimum" in note
+    assert "10%" in note  # the most tumor-rich region's share, so the pathologist sees how far off it is
+
+
+def test_one_region_at_the_minimum_is_enough_to_rank(cfg):
+    n = cfg["region_tiles"]
+    probs = grid(cfg, 16, 16, tumor=0.05)
+    set_block(cfg, probs, 4, 8, n, tumor=0.20)
+    regions, note = rank(cfg, probs, full_tissue(16, 16))
+    assert (regions[0]["row"], regions[0]["col"]) == (4, 8)
+    assert len(regions) == cfg["top_k"] and note is None
+
+
+@pytest.mark.parametrize("tumor, has_regions", [(0.196, True), (0.194, False)])
+def test_minimum_compares_the_percent_as_shown(cfg, tumor, has_regions):
+    # 19.6% shows as "20%" and must not read as below a 20% minimum; 19.4% shows as "19%".
+    regions, note = rank(cfg, grid(cfg, 8, 8, tumor=tumor), full_tissue(8, 8))
+    assert bool(regions) == has_regions
+    assert ("tumor minimum" in (note or "")) != has_regions
+
+
+def test_minimum_checks_every_candidate_not_just_the_top_scores(cfg):
+    # The necrotic block reaches 30% tumor but scores below the even 15% background, so it isn't the top pick.
+    n = cfg["region_tiles"]
+    probs = grid(cfg, n, 3 * n, tumor=0.15, necrosis=0.0)
+    set_block(cfg, probs, 0, 2 * n, n, tumor=0.30, necrosis=0.25)
+    regions, _ = rank(cfg, probs, full_tissue(n, 3 * n))
+    assert regions
+    assert regions[0]["composition"]["tumor"] == pytest.approx(0.15)
+
+
+def test_minimum_comes_from_config(cfg):
+    probs = grid(cfg, 8, 8, tumor=0.15)
+    assert rank(cfg, probs, full_tissue(8, 8))[0] == []
+    cfg["min_tumor_pct"] = 10
+    assert rank(cfg, probs, full_tissue(8, 8))[0]
+
+
+def test_coverage_note_wins_when_no_region_is_on_tissue(cfg):
+    regions, note = rank(cfg, grid(cfg, 8, 8, tumor=0.05), np.zeros((8, 8)))
+    assert regions == []
+    assert "on tissue" in note and "tumor minimum" not in note
+
+
 # --- boxes in display pixels ----------------------------------------------------------------------
 
 def test_box_is_in_display_pixels(cfg):

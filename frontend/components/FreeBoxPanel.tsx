@@ -1,6 +1,7 @@
 import type { MeasuredBox, Result } from '@/lib/api'
 import { pct } from '@/lib/format'
 import { CompositionSection, Reasons } from './RegionPanel'
+import ScoreHelp from './ScoreHelp'
 import ThresholdVerdict from './ThresholdVerdict'
 import { button } from './ui'
 
@@ -30,8 +31,9 @@ export default function FreeBoxPanel({
       <div className="flex items-baseline justify-between gap-4">
         <h2 className="text-lg font-semibold tracking-tight">Your box</h2>
         {measured && !error && (
-          <p className="text-right text-sm text-ink-muted">
+          <p className="flex items-center gap-1.5 text-right text-sm text-ink-muted">
             Score <span className="num text-lg font-semibold text-ink">{measured.score.toFixed(2)}</span>
+            <ScoreHelp />
           </p>
         )}
       </div>

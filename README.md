@@ -8,7 +8,8 @@ What a pathologist gets:
 - **Case workspace:**
   - the slide on a dark stage, with zoom and tumor (deep orange) and necrosis (blue) heatmaps at adjustable opacity, each with a banded color key;
   - the five suggested regions as numbered boxes and in a sortable table;
-  - each region checked against the lab's minimum tumor fraction for sequencing (default 20%).
+  - each region checked against the lab's minimum tumor fraction for sequencing (default 20%);
+  - if no region on the slide reaches the 20% minimum (`min_tumor_pct` in `config.yaml`), no regions are suggested and the case says so, with the best region's tumor %.
 - **Boxes you can reshape:** grab any box by a corner or edge, or draw your own; the numbers are re-measured while you drag, from the stored tile scores. Suggestions can also be re-ranked at 0.5, 1 or 2 mm to match a punch.
 - **Sampling sheet:** a print-ready page for the histotech, with the instruction, the slide with numbered boxes and a 1 mm scale bar, the region table, notes and sign-off lines. **Copy summary** puts the same numbers on the clipboard for the report.
 - **Case labels, notes and reviewed ticks stay in your browser**, never on the server or in the shared history, because they can identify a patient.
@@ -23,6 +24,75 @@ What a pathologist gets:
 
 Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`, `.claude/CLAUDE.md`, `.claude/rules.md`.
 
+## Request history database
+
+Analyses are stored in Postgres on Tiger Cloud: service **`ashby-prize`** (id `yni5q7anm1`, DEV, us-east-1), table `public.jobs`. Code: `backend/project/store.py`.
+
+### Connect the app
+
+1. Install the [Tiger CLI](https://docs.tigerdata.com/) and run `tiger auth login` with an account in the team's Tiger project.
+2. Save the connection string into `.env` (gitignored) without printing the password:
+   ```bash
+   u=$(tiger db uri yni5q7anm1 --with-password) && printf 'DATABASE_URL=%s\nTEST_DATABASE_URL=%s\n' "$u" "$u" >> .env && unset u
+   ```
+3. Run `make dev`, which loads `.env`. To confirm, run `curl -s localhost:3000/api/jobs | head -c 80`: it should say `"store":"postgres"`.
+   - `"store":"memory"` means `DATABASE_URL` isn't set, so history is lost on restart.
+   - If the URL is set but the database can't be reached, the server refuses to start rather than silently falling back to memory.
+
+Never commit `.env` or paste the URL into a chat or an LLM: it contains the password.
+
+### Fetch the data
+
+**Through the app's API** (works with either store; the app must be running):
+
+| Request | Returns |
+|---|---|
+| `GET /api/jobs` | `{store, jobs: [...]}`. The newest 100 analyses, each with `id`, `created_at`, `status`, `model`, `cancer_type`, `organ`, `best_tumor`, `best_necrosis`, `n_regions`, `progress`, `best_box`, `image_size` |
+| `GET /api/jobs/{id}` | One analysis: `status`, `created_at`, `cancer_type` and the full `result` (regions, composition, reasons) |
+| `GET /api/jobs/{id}/display.png`, `/heatmap.png` | The slide and heatmap images. They come from `data/jobs/{id}/` on the machine that ran the analysis, never from the database |
+
+```bash
+curl -s localhost:3000/api/jobs | python3 -m json.tool | head -40
+curl -s localhost:3000/api/jobs/<id> | python3 -m json.tool
+```
+
+**Straight from Postgres**, with the Tiger CLI (password from your keyring):
+
+```bash
+tiger db query yni5q7anm1 -c "SELECT id, created_at, status, model, prompt_set, cancer_type
+                               FROM jobs ORDER BY created_at DESC LIMIT 20"
+tiger db query yni5q7anm1 -c "SELECT result->'regions'->0 FROM jobs WHERE id = '<id>'"
+tiger db psql yni5q7anm1      # interactive psql session
+```
+
+From Python, use `PostgresStore` so the column handling matches the app:
+
+```python
+import os
+from project.store import PostgresStore    # run from backend/, with .env loaded
+store = PostgresStore(os.environ["DATABASE_URL"])
+for job in store.list(limit=10):
+    print(job.id, job.created_at, job.status, job.cancer_type)
+```
+
+Agents can use the Tiger MCP server (`db_query` with `service_id: yni5q7anm1`). Select only the columns you need, never `SELECT *`.
+
+### The `jobs` table
+
+| Column | Type | Meaning |
+|---|---|---|
+| `id` | text, primary key | Job id (32 hex characters), also the `/jobs/{id}` URL |
+| `created_at` | timestamptz | When the analysis was requested (UTC). Indexed, newest first |
+| `status` | text | `running`, `done` or `error`. Rows left `running` by a crash become `error` on the next startup |
+| `model` | text | `conch`, or `fake` for the demo model |
+| `prompt_set` | text | Which prompt set in `config.yaml` was used |
+| `cancer_type` | text, nullable | Most likely cancer type; null until a classifier is added |
+| `result` | jsonb, nullable | The full Result JSON from `GET /api/jobs/{id}` (regions, tissue composition, reasons) |
+| `error` | text, nullable | The message shown when an analysis failed |
+| `finished_at` | timestamptz, nullable | When it finished or failed |
+
+**Not stored, by design:** the uploaded file, its filename, any image, case labels and notes. Labels and notes stay in the browser, because they can identify a patient. `make test-db` runs the store tests against `TEST_DATABASE_URL` in a throwaway schema, which is dropped afterwards.
+
 ## Commands
 
 | Command | What it does |
@@ -33,7 +103,7 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 | `make test` | All fast tests: backend, Vitest and Playwright end-to-end. No GPU, internet or token needed (uses the demo model) |
 | `make test-e2e` | Only the Playwright flows; also saves screenshots to `reports/screenshots/` |
 | `make test-db` | Postgres store tests in a throwaway schema; needs `TEST_DATABASE_URL` |
-| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`). On Delta: `scripts/test_real.sbatch` |
+| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`), including the false-positive check: no region may be suggested on slides built only from non-tumor tiles (`results/false_positives_*.json`). On Delta: `scripts/test_real.sbatch` |
 
 All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 
