@@ -1,0 +1,119 @@
+# Prompt candidates compared on CRC dev tiles. Chosen: colon_d (colon), generic_a (generic).
+v1:
+  tumor:
+  - an H&E image of tumor
+  - an H&E image of adenocarcinoma
+  - an H&E image of carcinoma
+  - an H&E image of malignant epithelium
+  stroma:
+  - an H&E image of stroma
+  - an H&E image of fibrous connective tissue
+  - an H&E image of smooth muscle
+  immune:
+  - an H&E image of lymphocytes
+  - an H&E image of immune cells
+  - an H&E image of an inflammatory infiltrate
+  necrosis:
+  - an H&E image of necrosis
+  - an H&E image of necrotic debris
+  normal:
+  - an H&E image of normal tissue
+  - an H&E image of normal mucosa
+  - an H&E image of benign glands
+  fat_other:
+  - an H&E image of adipose tissue
+  - an H&E image of mucus
+  - an H&E image of background
+generic_a:
+  tumor:
+  - an H&E image of tumor
+  - an H&E image of carcinoma
+  - an H&E image of invasive carcinoma
+  - an H&E image of malignant tumor cells
+  - an H&E image of cancer cells with enlarged pleomorphic nuclei
+  normal:
+  - an H&E image of benign normal tissue
+  - an H&E image of normal tissue with orderly architecture
+generic_b:
+  tumor:
+  - an H&E image of tumor
+  - an H&E image of carcinoma
+  - an H&E image of invasive carcinoma
+  - an H&E image of malignant tumor cells
+  - an H&E image of adenocarcinoma
+  normal:
+  - an H&E image of normal tissue
+generic_c:
+  tumor:
+  - tumor
+  - carcinoma
+  - invasive carcinoma
+  - malignant tumor cells
+  - adenocarcinoma
+  normal:
+  - normal tissue
+  - benign tissue
+colon_a:
+  tumor:
+  - an H&E image of colorectal adenocarcinoma
+  - an H&E image of colon adenocarcinoma
+  - an H&E image of invasive colorectal carcinoma
+  - an H&E image of malignant colonic glands
+  normal:
+  - an H&E image of normal colonic mucosa
+  - an H&E image of normal colon mucosa with goblet cells
+  - an H&E image of benign colonic crypts
+colon_b:
+  tumor:
+  - an H&E image of colorectal adenocarcinoma
+  - an H&E image of adenocarcinoma
+  - an H&E image of tumor
+  normal:
+  - an H&E image of normal colonic mucosa
+colon_c:
+  tumor:
+  - colorectal adenocarcinoma
+  - adenocarcinoma
+  - tumor
+  - carcinoma
+  normal:
+  - normal colon mucosa
+  - benign colonic mucosa
+colon_d:
+  tumor:
+  - an H&E image of colorectal adenocarcinoma
+  - an H&E image of colon adenocarcinoma
+  - an H&E image of invasive colorectal carcinoma
+  - an H&E image of malignant colonic glands
+  - an H&E image of colorectal cancer with crowded atypical glands
+  - an H&E image of tumor
+  normal:
+  - an H&E image of normal colonic mucosa
+  - an H&E image of normal colon mucosa with goblet cells
+  - an H&E image of benign colonic crypts
+colon_e:
+  tumor:
+  - an H&E image of colorectal adenocarcinoma
+  - an H&E image of colon adenocarcinoma
+  - an H&E image of invasive colorectal carcinoma
+  - an H&E image of malignant colonic glands
+  normal:
+  - an H&E image of normal colonic mucosa
+  - an H&E image of normal colon mucosa with goblet cells
+  - an H&E image of benign colonic crypts
+  necrosis:
+  - an H&E image of necrosis
+  - an H&E image of necrotic debris without viable cells
+  immune:
+  - an H&E image of lymphocytes
+  - an H&E image of a dense lymphocytic infiltrate
+generic_d:
+  tumor:
+  - an H&E image of carcinoma
+  - an H&E image of invasive carcinoma
+  - an H&E image of adenocarcinoma
+  - an H&E image of malignant tumor cells
+  - an H&E image of tumor
+  normal:
+  - an H&E image of normal tissue
+  - an H&E image of benign normal tissue

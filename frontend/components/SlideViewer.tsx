@@ -1,8 +1,11 @@
 'use client'
 
-import { useCallback, useLayoutEffect, useRef, useState } from 'react'
+import { useCallback, useLayoutEffect, useRef, useState, type Ref } from 'react'
 import type { Result } from '@/lib/api'
 import { pct } from '@/lib/format'
+import FreeBox, { dragRect, fromCorners, HANDLE_POS, HANDLES, useDrag, type Handle, type Rect } from './FreeBox'
+
+const MIN_DRAW_PX = 4 // rendered px: a smaller drag is a click, not a box
 
 // Box coordinates are in display-image pixels; the image is drawn at whatever width the layout gives it.
 // Scale = rendered width / display width, re-measured on load, window resize and container resize.
@@ -32,14 +35,46 @@ interface Props {
   selected: number
   onSelect: (rank: number) => void
   showHeatmap: boolean
+  heatmapOpacity?: number
+  // The user's own box (display px), the drawing mode that creates it, and its callbacks.
+  free: Rect | null
+  freeSelected: boolean
+  freeLabel: string
+  freeRef: Ref<HTMLDivElement>
+  drawing: boolean
+  onDrawn: (rect: Rect | null) => void
+  onSketch: (rect: Rect) => void
+  onFreeSelect: () => void
+  onFreeChange: (rect: Rect, when: 'drag' | 'now' | 'soon') => void
 }
 
-export default function SlideViewer({ result, selected, onSelect, showHeatmap }: Props) {
+export default function SlideViewer(props: Props) {
+  const { result, selected, onSelect, showHeatmap, free, drawing, onDrawn } = props
   const { image } = result
   const { ref, scale, measure } = useScale(image.width)
 
+  // Drawing: the press point is one corner and the pointer is the other, in display px.
+  const drag = useDrag<[number, number]>(scale, ([ax, ay], dx, dy, done) => {
+    const rect = fromCorners(ax, ay, ax + dx, ay + dy, image.width, image.height)
+    const big = rect.w * scale >= MIN_DRAW_PX && rect.h * scale >= MIN_DRAW_PX
+    if (!done) {
+      if (big) props.onSketch(rect)
+      return
+    }
+    onDrawn(big ? rect : null)
+  })
+  // The selected suggestion's handles: grabbing one turns that region into your box and keeps resizing it.
+  const resize = useDrag<{ handle: Handle; start: Rect }>(scale, ({ handle, start }, dx, dy, done) =>
+    props.onFreeChange(dragRect(start, handle, dx, dy, image.width, image.height), done ? 'now' : 'drag'),
+  )
+
+  const startDraw = (e: React.PointerEvent) => {
+    const box = ref.current!.getBoundingClientRect()
+    drag([(e.clientX - box.left) / scale, (e.clientY - box.top) / scale], e)
+  }
+
   return (
-    <div className="relative overflow-hidden rounded-lg bg-surface-sunken">
+    <div className="relative overflow-hidden rounded-sm shadow-overlay">
       {/* A per-job PNG from the API: plain <img> with its real size, so the boxes scale with it. */}
       <img
         ref={ref}
@@ -56,6 +91,7 @@ export default function SlideViewer({ result, selected, onSelect, showHeatmap }:
           src={result.heatmap_url}
           alt=""
           aria-hidden
+          style={{ opacity: props.heatmapOpacity ?? 1 }}
           className="pointer-events-none absolute inset-0 h-full w-full animate-enter"
         />
       )}
@@ -68,27 +104,59 @@ export default function SlideViewer({ result, selected, onSelect, showHeatmap }:
             aria-pressed={isSelected}
             aria-label={`Region ${r.rank}${r.is_best ? ', best' : ''}: ${pct(r.composition.tumor)} tumor`}
             onClick={() => onSelect(r.rank)}
-            style={{ left: `${r.x * scale}px`, top: `${r.y * scale}px`, width: `${r.w * scale}px`, height: `${r.h * scale}px` }}
-            className={`group absolute cursor-pointer rounded-sm transition-[transform] duration-fast ease-standard hover:z-10 focus-visible:z-10 ${
+            style={{
+              left: `${r.x * scale}px`,
+              top: `${r.y * scale}px`,
+              width: `${r.w * scale}px`,
+              height: `${r.h * scale}px`,
+              animationDelay: `${(r.rank - 1) * 90}ms`,
+            }}
+            className={`group absolute animate-drop cursor-pointer rounded-sm transition-[transform] duration-fast ease-standard hover:z-10 focus-visible:z-10 ${
               r.is_best ? 'region-box-best' : 'region-box'
             } ${isSelected ? 'z-10' : ''}`}
           >
             <span className="absolute -top-0.5 -left-0.5 flex -translate-x-px -translate-y-px items-center">
               <span
                 data-testid="rank"
-                className={`flex size-6 items-center justify-center rounded-sm text-xs font-bold tabular-nums transition-transform duration-fast ease-standard group-hover:scale-110 ${
-                  isSelected ? 'bg-accent text-accent-ink' : 'bg-box-outline text-box-other'
+                className={`flex size-6 items-center justify-center rounded-sm font-mono text-xs font-semibold transition-transform duration-fast ease-standard group-hover:scale-110 ${
+                  isSelected ? 'bg-box-best text-box-outline' : 'bg-box-outline text-box-other'
                 }`}
               >
                 {r.rank}
               </span>
               {r.is_best && (
-                <span className="rounded-r-sm bg-box-outline px-1.5 py-0.5 text-xs font-semibold text-box-other">Best</span>
+                <span className="rounded-r-sm bg-box-outline px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-box-best">Best</span>
               )}
             </span>
+            {isSelected &&
+              HANDLES.map((h) => (
+                <span
+                  key={h}
+                  aria-hidden
+                  data-testid={`handle-${h}`}
+                  onPointerDown={(e) => resize({ handle: h, start: { x: r.x, y: r.y, w: r.w, h: r.h } }, e)}
+                  onClick={(e) => e.stopPropagation()}
+                  className={`free-box-handle absolute size-3 touch-none rounded-[2px] ${HANDLE_POS[h]}`}
+                />
+              ))}
           </button>
         )
       })}
+      {free && (
+        <FreeBox
+          ref={props.freeRef}
+          rect={free}
+          scale={scale}
+          bounds={image}
+          selected={props.freeSelected}
+          label={props.freeLabel}
+          onSelect={props.onFreeSelect}
+          onChange={props.onFreeChange}
+        />
+      )}
+      {drawing && (
+        <div data-testid="draw-surface" aria-hidden onPointerDown={startDraw} className="absolute inset-0 z-30 cursor-crosshair touch-none" />
+      )}
     </div>
   )
 }

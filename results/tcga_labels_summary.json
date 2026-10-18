@@ -1,0 +1,30 @@
+{
+  "project": "TCGA-LUAD",
+  "slide_kinds": [
+    "TS",
+    "BS"
+  ],
+  "n_slides": 718,
+  "multi_slide_samples_with_different_pct": 173,
+  "cal": {
+    "slides": 79,
+    "hospitals": 1,
+    "below_cutoff": 69,
+    "selected": 0,
+    "selected_gb": 0.0
+  },
+  "test": {
+    "slides": 261,
+    "hospitals": 17,
+    "below_cutoff": 196,
+    "selected": 150,
+    "selected_gb": 50.0
+  },
+  "train": {
+    "slides": 378,
+    "hospitals": 15,
+    "below_cutoff": 275,
+    "selected": 100,
+    "selected_gb": 15.0
+  }
+}

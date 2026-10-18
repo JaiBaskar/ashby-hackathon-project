@@ -83,3 +83,31 @@ def test_device_order_is_cuda_then_mps_then_cpu():
     assert pick_device(fake_torch(cuda=True, mps=True)) == "cuda"
     assert pick_device(fake_torch(cuda=False, mps=True)) == "mps"
     assert pick_device(fake_torch(cuda=False, mps=False)) == "cpu"
+
+
+# --- organ-aware prompts -------------------------------------------------------------------------
+
+from project.model import prompts_for
+
+
+def test_prompts_for_an_organ_override_only_its_classes(cfg):
+    lung = prompts_for(cfg, "lung")
+    assert list(lung) == cfg["classes"]
+    assert lung["tumor"] == cfg["organ_prompts"]["lung"]["tumor"]
+    assert lung["stroma"] == cfg["prompts"]["stroma"]          # not overridden: generic
+    assert prompts_for(cfg, "other") == {c: cfg["prompts"][c] for c in cfg["classes"]}
+    assert prompts_for(cfg, None) == prompts_for(cfg, cfg["default_organ"])
+
+
+def test_unknown_organ_is_rejected(cfg):
+    with pytest.raises(ValueError, match="organ"):
+        prompts_for(cfg, "spleen")
+
+
+def test_predict_is_classify_of_embed(cfg):
+    backend = FakeBackend(cfg)
+    tiles = mixed_tiles()
+    emb = backend.embed(tiles)
+    assert emb.shape[0] == len(tiles)
+    np.testing.assert_allclose(backend.classify(emb, "lung"), backend.predict(tiles, organ="lung"))
+    assert backend.classify(emb[:0], "other").shape == (0, len(cfg["classes"]))

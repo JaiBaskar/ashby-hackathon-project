@@ -30,7 +30,31 @@ export function fileExtension(name: string): string {
 export const settings = {
   maxUploadMb: Number(process.env.MAX_UPLOAD_MB),
   defaultMpp: Number(process.env.DEFAULT_MPP),
+  organs: (process.env.ORGANS ?? '').split(',').filter(Boolean),
+  defaultOrgan: process.env.DEFAULT_ORGAN ?? '',
 }
+
+// Display names for config.yaml's organs. The backend picks that organ's CONCH prompts.
+export const ORGAN_LABELS: Record<string, string> = {
+  colon: 'Colon / rectum',
+  lung: 'Lung',
+  breast: 'Breast',
+  pancreas: 'Pancreas',
+  prostate: 'Prostate',
+  other: 'Other / unknown',
+}
+
+export const organLabel = (organ: string) => ORGAN_LABELS[organ] ?? organ
 
 // Box sizes come in µm (multiples of the 128 µm tile); people pick punches in mm. 512 µm reads as "0.5 mm".
 export const boxLabel = (um: number) => `${Number((um / 1000).toFixed(1))} mm`
+
+// "Oct 17, 2026, 2:05 PM" in the viewer's time zone (or a fixed one, for tests).
+export function formatCreated(iso: string, timeZone?: string): string {
+  return new Intl.DateTimeFormat('en-US', { dateStyle: 'medium', timeStyle: 'short', timeZone }).format(new Date(iso))
+}
+
+export function cancerTypeLabel(type: string | null | undefined): string {
+  if (!type) return 'Not identified yet'
+  return type.charAt(0).toUpperCase() + type.slice(1).replaceAll('_', ' ')
+}

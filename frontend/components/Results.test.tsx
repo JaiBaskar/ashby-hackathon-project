@@ -109,10 +109,10 @@ test('the Demo model badge shows for the fake model only', () => {
   expect(screen.queryByText('Demo model')).not.toBeInTheDocument()
 })
 
-test('carries the research-use notice and a "New analysis" button', () => {
+test('carries the research-use notice and a way back to the worklist', () => {
   render(<Results result={makeResult()} />)
   expect(screen.getByText(/research prototype.*not for clinical use/i)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'New analysis' })).toHaveAttribute('href', '/upload')
+  expect(screen.getByRole('link', { name: /worklist/i })).toHaveAttribute('href', '/')
 })
 
 test('the heatmap toggle shows and hides the tumor overlay', () => {
@@ -131,6 +131,22 @@ test('the heatmap legend shows the tumor-probability range its colors span', () 
   const legend = screen.getByTestId('heatmap-legend')
   expect(legend).toHaveTextContent(/tumor probability/i)
   expect(legend).toHaveTextContent(/72%.*97%/)
+  expect(legend).toHaveTextContent(/scaled to this slide/i)
+})
+
+test('a case saved before heatmap ranges existed still gets a plain heatmap legend', () => {
+  render(<Results result={makeResult({ heatmap_range: null })} />)
+  fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
+  expect(screen.getByTestId('heatmap-legend')).toHaveTextContent(/brighter amber = more tumor/i)
+})
+
+test('shows when the case was created, and the cancer type only when one was identified', () => {
+  const { unmount } = render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
+  expect(screen.getByText('Oct 17, 2026, 2:05 PM').tagName).toBe('TIME')
+  expect(screen.queryByText(/not identified/i)).not.toBeInTheDocument()
+  unmount()
+  render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: 'Adenocarcinoma' }} timeZone="UTC" />)
+  expect(screen.getByText('Adenocarcinoma')).toBeInTheDocument()
 })
 
 describe('box size', () => {
@@ -202,4 +218,12 @@ describe('box size', () => {
     expect(screen.getByRole('radiogroup', { name: /box size/i })).toHaveAttribute('aria-busy', 'false')
     expect(boxes()).toHaveLength(2)
   })
+})
+
+test('names the organ the prompts were chosen for, when the result has one', () => {
+  const { unmount } = render(<Results result={makeResult({ organ: 'pancreas' })} />)
+  expect(screen.getByText(/organ: pancreas/i)).toBeInTheDocument()
+  unmount()
+  render(<Results result={makeResult({ organ: undefined })} />)   // recorded before the organ picker
+  expect(screen.queryByText(/organ:/i)).not.toBeInTheDocument()
 })

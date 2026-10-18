@@ -1,7 +1,7 @@
 import pytest
 import yaml
 
-from project.config import REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
+from project.config import REPO_ROOT, REQUIRED_KEYS, ConfigError, load_config, with_prompt_set
 
 
 def test_config_loads_with_every_required_key():
@@ -22,21 +22,36 @@ def test_missing_key_is_reported(tmp_path):
         load_config(path)
 
 
+def test_organs_and_their_prompts_are_consistent():
+    cfg = load_config()
+    assert cfg["organs"] == ["colon", "lung", "breast", "pancreas", "prostate", "other"]
+    assert cfg["default_organ"] in cfg["organs"]
+    assert set(cfg["organ_prompts"]) <= set(cfg["organs"]) - {"other"}
+    for organ, override in cfg["organ_prompts"].items():
+        assert set(override) <= set(cfg["classes"]), organ
+        assert all(isinstance(p, str) and p for prompts in override.values() for p in prompts), organ
+    assert cfg["tcga"]["organ"] in cfg["organs"]
+
+
 def test_every_prompt_set_covers_every_class():
     cfg = load_config()
     assert "v2" in cfg["prompt_sets"]
-    for name, prompts in cfg["prompt_sets"].items():
+    for name, pset in cfg["prompt_sets"].items():
+        prompts = {k: v for k, v in pset.items() if k != "organs"}  # organs: optional per-organ overrides
         assert set(prompts) == set(cfg["classes"]), f"prompt set {name} doesn't match classes"
         assert all(prompts[c] for c in cfg["classes"]), f"prompt set {name} has a class with no prompts"
 
 
 def test_prompts_come_from_the_selected_set():
     cfg = load_config()
-    assert cfg["prompts"] == cfg["prompt_sets"][cfg["prompt_set"]]
+    selected = cfg["prompt_sets"][cfg["prompt_set"]]
+    assert cfg["prompts"] == {k: v for k, v in selected.items() if k != "organs"}
+    assert cfg["organ_prompts"] == (selected.get("organs") or {})
     other = with_prompt_set(cfg, "v2")
     assert other["prompt_set"] == "v2"
     assert other["prompts"] == cfg["prompt_sets"]["v2"]
-    assert cfg["prompts"] == cfg["prompt_sets"][cfg["prompt_set"]]  # the original is untouched
+    assert other["organ_prompts"] == {}
+    assert cfg["prompts"] == {k: v for k, v in selected.items() if k != "organs"}  # the original is untouched
 
 
 def test_unknown_prompt_set_is_reported(tmp_path):
@@ -65,3 +80,10 @@ def test_bad_box_sizes_are_reported(tmp_path, sizes, message):
     path.write_text(yaml.safe_dump(cfg))
     with pytest.raises(ConfigError, match=message):
         load_config(path)
+
+
+def test_project_model_env_overrides_the_configured_model(monkeypatch):
+    monkeypatch.setenv("PROJECT_MODEL", "fake")
+    assert load_config()["model"] == "fake"
+    monkeypatch.delenv("PROJECT_MODEL")
+    assert load_config()["model"] == yaml.safe_load((REPO_ROOT / "config.yaml").read_text())["model"]

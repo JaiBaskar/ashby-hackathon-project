@@ -24,10 +24,13 @@ export interface Region {
 
 export interface Result {
   model: string
+  organ?: string | null
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
-  heatmap_range: { low: number; high: number } // tumor probability at the overlay's clear and strongest ends
+  // Tumor probability at the overlay's clear and strongest ends; null for cases saved before it existed.
+  heatmap_range?: { low: number; high: number } | null
   regions_url: string
+  measure_url: string
   box_um: number
   box_sizes_um: number[]
   tiles: { count: number; capped: boolean }
@@ -43,6 +46,22 @@ export interface RegionsAtSize {
   note: string | null
 }
 
+// GET {measure_url}?x=…&y=…&w=…&h= : any rectangle (display pixels), measured from the stored tile scores.
+export interface MeasuredBox {
+  x: number
+  y: number
+  w: number
+  h: number
+  width_um: number
+  height_um: number
+  tiles: number
+  score: number
+  tissue_coverage: number
+  tumor_std: number
+  composition: Composition
+  reasons: string[]
+}
+
 export interface JobStatus {
   status: 'queued' | 'running' | 'done' | 'error'
   step: Step | null
@@ -50,6 +69,29 @@ export interface JobStatus {
   model: string
   result?: Result | null
   error?: string | null
+  created_at?: string | null
+  cancer_type?: string | null // most likely cancer type; null until a classifier exists
+}
+
+// GET /api/jobs: every analysis request, newest first. store is 'memory' when no database is configured.
+export interface JobSummary {
+  id: string
+  created_at: string
+  status: 'running' | 'done' | 'error'
+  model: string
+  cancer_type: string | null
+  organ?: string | null
+  best_tumor?: number | null // region 1's tumor fraction
+  best_necrosis?: number | null
+  n_regions?: number | null
+  progress?: number
+  best_box?: [number, number, number, number] | null // region 1, display px
+  image_size?: [number, number] | null
+}
+
+export interface JobList {
+  store: 'postgres' | 'memory'
+  jobs: JobSummary[]
 }
 
 // FastAPI errors come back as { detail: "..." }. Fall back to a plain sentence, never a raw object.

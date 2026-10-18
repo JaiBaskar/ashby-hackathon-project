@@ -2,6 +2,7 @@
 
 import io
 import time
+from datetime import datetime
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,14 +11,21 @@ from PIL import Image
 from project.api import STEPS, Job, Result, create_app
 from project.config import load_config
 from project.model import FakeBackend, ModelConfigError
+from project.store import MemoryStore
 from project.tiling import NO_TISSUE
 from tests.synthetic import GLASS, he_slide, solid
+
+
+@pytest.fixture(autouse=True)
+def no_database(monkeypatch):
+    monkeypatch.delenv("DATABASE_URL", raising=False)  # the fast suite never touches a real database
 
 
 @pytest.fixture
 def cfg(tmp_path):
     cfg = load_config()
-    cfg["paths"] = {**cfg["paths"], "uploads": str(tmp_path / "uploads")}
+    cfg["model"] = "fake"  # the fast suite never loads CONCH, whatever config.yaml says (AGENTS.md §7)
+    cfg["paths"] = {**cfg["paths"], "uploads": str(tmp_path / "uploads"), "jobs": str(tmp_path / "jobs")}
     return cfg
 
 
@@ -66,6 +74,14 @@ def test_upload_runs_to_done_and_result_validates(client):
     for region in result.regions:
         assert 0 <= region.x and region.x + region.w <= result.image.width
         assert 0 <= region.y and region.y + region.h <= result.image.height
+
+
+def test_results_saved_before_heatmap_ranges_still_load(client):
+    # Postgres keeps old Result JSON; jobs stored before heatmap_range existed must still open from history.
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    old = {k: v for k, v in body["result"].items() if k != "heatmap_range"}
+    assert Result.model_validate(old).heatmap_range is None
 
 
 def test_display_and_heatmap_pngs_are_served_at_display_size(client):
@@ -158,6 +174,163 @@ def test_app_refuses_to_start_without_conch_token(cfg, monkeypatch):
         create_app(cfg)
 
 
+# --- organ ----------------------------------------------------------------------------------------
+
+def upload_with_organ(client, organ):
+    return client.post("/api/jobs", files={"file": ("slide.png", png_bytes(he_slide(1024, 1024)), "image/png")},
+                       data={"organ": organ})
+
+
+def test_organ_reaches_the_result(client):
+    job_id = upload_with_organ(client, "lung").json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert body["result"]["organ"] == "lung"
+
+
+def test_organ_defaults_to_config(client, cfg):
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert body["result"]["organ"] == cfg["default_organ"]
+
+
+def test_unknown_organ_is_400(client):
+    r = upload_with_organ(client, "spleen")
+    assert r.status_code == 400
+    assert "organ" in r.json()["detail"].lower()
+
+
+def test_organ_is_passed_to_the_model(cfg, monkeypatch):
+    from project.model import FakeBackend
+
+    seen = []
+    original = FakeBackend.classify
+
+    def spy(self, embeddings, organ=None):
+        seen.append(organ)
+        return original(self, embeddings, organ)
+
+    monkeypatch.setattr(FakeBackend, "classify", spy)
+    client = TestClient(create_app(cfg))
+    poll(client, upload_with_organ(client, "prostate").json()["job_id"])
+    assert seen and set(seen) == {"prostate"}
+
+
+# --- request history (store) ----------------------------------------------------------------------
+
+def test_jobs_list_is_newest_first_with_created_at_and_cancer_type(client):
+    first = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    poll(client, first)
+    second = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    poll(client, second)
+    body = client.get("/api/jobs").json()
+    assert body["store"] == "memory"
+    assert [j["id"] for j in body["jobs"]] == [second, first]
+    for j in body["jobs"]:
+        assert j["status"] == "done" and j["model"] == "fake"
+        assert j["cancer_type"] is None  # no classifier yet (reports/decisions.md)
+        assert datetime.fromisoformat(j["created_at"]).tzinfo is not None
+
+
+def test_jobs_list_summarizes_each_case_for_the_worklist(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    job_id = client.post("/api/jobs", files={"file": ("slide.png", png_bytes(he_slide(4096, 3072)), "image/png")},
+                         data={"organ": "lung"}).json()["job_id"]
+    result = poll(client, job_id)[0]["result"]
+    best = result["regions"][0]
+
+    def summary(c):
+        return next(j for j in c.get("/api/jobs").json()["jobs"] if j["id"] == job_id)
+
+    for c in (client, TestClient(create_app(cfg, store=store))):  # live, and after a restart from the store
+        j = summary(c)
+        assert j["organ"] == "lung"
+        assert j["best_tumor"] == pytest.approx(best["composition"]["tumor"])
+        assert j["best_necrosis"] == pytest.approx(best["composition"]["necrosis"])
+        assert j["n_regions"] == len(result["regions"])
+        assert j["progress"] == 1.0
+        assert j["best_box"] == [best["x"], best["y"], best["w"], best["h"]]  # display px, for the thumbnail
+        assert j["image_size"] == [result["image"]["width"], result["image"]["height"]]
+
+
+def test_jobs_list_shows_progress_while_running_and_no_numbers_without_regions(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    job = Job("fake")
+    job.advance("analyzing", 0.4)
+    app.state.jobs["a" * 32] = job
+    app.state.store.create("a" * 32, "fake", cfg["prompt_set"])
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == "a" * 32)
+    assert (j["status"], j["progress"]) == ("running", 0.4)
+    assert (j["best_tumor"], j["best_necrosis"], j["n_regions"]) == (None, None, None)
+    assert (j["best_box"], j["image_size"]) == (None, None)
+
+    blank = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
+    poll(client, blank)
+    j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == blank)
+    assert (j["status"], j["best_tumor"], j["n_regions"]) == ("error", None, None)
+
+
+def test_job_status_has_created_at_and_cancer_type(client):
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert datetime.fromisoformat(body["created_at"]).tzinfo is not None
+    assert body["cancer_type"] is None
+
+
+def test_finished_job_survives_a_restart(cfg):
+    store = MemoryStore()
+    before = TestClient(create_app(cfg, store=store))
+    job_id = upload(before, png_bytes(he_slide(2048, 1536))).json()["job_id"]
+    done, _ = poll(before, job_id)
+    pngs = {n: before.get(f"/api/jobs/{job_id}/{n}").content for n in ("display.png", "heatmap.png")}
+
+    after = TestClient(create_app(cfg, store=store))  # new process: empty memory, same store and disk
+    body = after.get(f"/api/jobs/{job_id}").json()
+    assert body["status"] == "done"
+    assert body["result"] == done["result"]
+    assert body["created_at"] == done["created_at"]
+    for name, content in pngs.items():
+        r = after.get(f"/api/jobs/{job_id}/{name}")
+        assert r.status_code == 200 and r.content == content
+    assert [j["id"] for j in after.get("/api/jobs").json()["jobs"]] == [job_id]
+
+
+def test_failed_job_is_recorded(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    job_id = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
+    poll(client, job_id)
+    rec = store.get(job_id)
+    assert (rec.status, rec.error) == ("error", NO_TISSUE)
+
+
+def test_uploaded_filename_is_never_stored(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    job_id = upload(client, png_bytes(he_slide(1024, 1024)), name="MRN-4417-smith.png").json()["job_id"]
+    poll(client, job_id)
+    assert "4417" not in repr(store.get(job_id))
+    assert "4417" not in client.get("/api/jobs").text
+    assert "4417" not in client.get(f"/api/jobs/{job_id}").text
+
+
+def test_store_failure_does_not_break_the_result(cfg):
+    class BrokenStore(MemoryStore):
+        def finish(self, *args, **kwargs):
+            raise ConnectionError("database went away")
+
+    client = TestClient(create_app(cfg, store=BrokenStore()))
+    job_id = upload(client, png_bytes(he_slide(2048, 1536))).json()["job_id"]
+    body, _ = poll(client, job_id)
+    assert body["status"] == "done" and body["result"]["regions"]
+
+
+@pytest.mark.parametrize("bad_id", ["..%2F..%2Fconfig", "x" * 32, "0" * 31])
+def test_image_routes_reject_ids_that_are_not_job_ids(client, bad_id):
+    assert client.get(f"/api/jobs/{bad_id}/display.png").status_code == 404
+
+
 # --- box size: re-rank a finished job without running the model again --------------------------
 
 def test_result_reports_the_box_size_and_the_sizes_on_offer(client, cfg):
@@ -171,7 +344,7 @@ def test_result_reports_the_box_size_and_the_sizes_on_offer(client, cfg):
 def test_regions_at_another_box_size_reuse_the_tile_scores(cfg, monkeypatch):
     calls = []
     original = FakeBackend.predict
-    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles: calls.append(len(tiles)) or original(self, tiles))
+    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles, organ=None: calls.append(len(tiles)) or original(self, tiles, organ))
     client = TestClient(create_app(cfg))
     job_id = upload(client, png_bytes(he_slide(4096, 3072))).json()["job_id"]
     result = poll(client, job_id)[0]["result"]
@@ -224,3 +397,75 @@ def test_regions_before_the_job_is_done_is_409(cfg):
     r = client.get("/api/jobs/running/regions", params={"box_um": 512})
     assert r.status_code == 409
     assert "still" in r.json()["detail"]
+
+
+# --- free-form box: measure any rectangle on a finished job ---------------------------------------
+
+def test_measure_any_box_on_a_finished_job(cfg, monkeypatch):
+    calls = []
+    original = FakeBackend.predict
+    monkeypatch.setattr(FakeBackend, "predict", lambda self, tiles, organ=None: calls.append(len(tiles)) or original(self, tiles, organ))
+    client = TestClient(create_app(cfg))
+    job_id = upload(client, png_bytes(he_slide(4096, 3072))).json()["job_id"]
+    result = poll(client, job_id)[0]["result"]
+    assert result["measure_url"] == f"/api/jobs/{job_id}/measure"
+    n_calls = len(calls)
+
+    best = result["regions"][0]
+    same = client.get(result["measure_url"], params={k: best[k] for k in ("x", "y", "w", "h")})
+    assert same.status_code == 200, same.text
+    body = same.json()
+    assert body["score"] == pytest.approx(best["score"])
+    assert body["composition"]["tumor"] == pytest.approx(best["composition"]["tumor"])
+
+    odd = client.get(result["measure_url"], params={"x": 333.5, "y": 120, "w": 517, "h": 211}).json()
+    assert (odd["x"], odd["y"], odd["w"], odd["h"]) == (333.5, 120, 517, 211)
+    assert sum(odd["composition"].values()) == pytest.approx(1.0)
+    assert odd["width_um"] / odd["height_um"] == pytest.approx(517 / 211)
+    assert len(calls) == n_calls  # measured from the stored tile scores
+
+
+def test_measure_refuses_an_empty_box_or_glass(client):
+    job_id = upload(client, png_bytes(he_slide(2048, 1536))).json()["job_id"]
+    poll(client, job_id)
+    empty = client.get(f"/api/jobs/{job_id}/measure", params={"x": 10, "y": 10, "w": 0, "h": 50})
+    assert empty.status_code == 400 and "box" in empty.json()["detail"]
+    glass = client.get(f"/api/jobs/{job_id}/measure", params={"x": 0, "y": 0, "w": 40, "h": 40})  # corner glass
+    assert glass.status_code == 400 and "no analyzed tissue" in glass.json()["detail"]
+
+
+def test_measure_unknown_or_unfinished_job(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    params = {"x": 0, "y": 0, "w": 100, "h": 100}
+    assert client.get("/api/jobs/nope/measure", params=params).status_code == 404
+    app.state.jobs["running"] = Job("fake")
+    assert client.get("/api/jobs/running/measure", params=params).status_code == 409
+
+
+def test_box_resize_still_works_after_a_restart(cfg):
+    store = MemoryStore()
+    before = TestClient(create_app(cfg, store=store))
+    job_id = upload(before, png_bytes(he_slide(4096, 3072))).json()["job_id"]
+    poll(before, job_id)
+    expected = before.get(f"/api/jobs/{job_id}/regions", params={"box_um": 1024}).json()
+
+    after = TestClient(create_app(cfg, store=store))  # tile scores now come from data/jobs/<id>/ranking.npz
+    r = after.get(f"/api/jobs/{job_id}/regions", params={"box_um": 1024})
+    assert r.status_code == 200
+    assert r.json() == expected
+
+
+def test_free_box_still_measures_after_a_restart(cfg):
+    store = MemoryStore()
+    before = TestClient(create_app(cfg, store=store))
+    job_id = upload(before, png_bytes(he_slide(4096, 3072)), mpp=0.25).json()["job_id"]
+    poll(before, job_id)
+    params = {"x": 333.5, "y": 120, "w": 517, "h": 211}
+    expected = before.get(f"/api/jobs/{job_id}/measure", params=params).json()
+
+    after = TestClient(create_app(cfg, store=store))  # tile scores and scale come from data/jobs/<id>/ranking.npz
+    r = after.get(f"/api/jobs/{job_id}/measure", params=params)
+    assert r.status_code == 200
+    assert r.json() == expected
+    assert r.json()["width_um"] == pytest.approx(517 * 2 * 0.25)  # display is half size; the typed 0.25 µm/px kept
