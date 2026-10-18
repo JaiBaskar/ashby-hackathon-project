@@ -1,0 +1,55 @@
+{
+  "check": "regions suggested on mosaics with no tumor tile (false positives), real CONCH zero-shot",
+  "dataset": "BCSS (Amgad et al. 2019), TCGA breast",
+  "organ": "breast",
+  "prompt_set": "v3",
+  "seed": 1234,
+  "mosaic_tiles": "8x8",
+  "region_tiles": 4,
+  "min_tumor_pct": 20,
+  "non_tumor_mosaics": 2,
+  "non_tumor_mosaics_with_regions": 0,
+  "non_tumor_windows_at_minimum": 0,
+  "non_tumor_windows": 50,
+  "rows": [
+    {
+      "mosaic": "stroma",
+      "has_tumor": false,
+      "n_tiles": 64,
+      "mean_tile_tumor_pct": 11.29,
+      "tiles_tumor_top_class_pct": 9.38,
+      "tiles_tumor_ge_50_pct": 9.38,
+      "n_windows": 25,
+      "windows_at_minimum": 0,
+      "max_window_tumor_pct": 18.58,
+      "n_regions": 0,
+      "note": "No 4\u00d74-tile region reaches the 20% tumor minimum for sequencing (the most tumor-rich has 19%), so no regions are suggested."
+    },
+    {
+      "mosaic": "mixed non-tumor",
+      "has_tumor": false,
+      "n_tiles": 64,
+      "mean_tile_tumor_pct": 8.59,
+      "tiles_tumor_top_class_pct": 6.25,
+      "tiles_tumor_ge_50_pct": 6.25,
+      "n_windows": 25,
+      "windows_at_minimum": 0,
+      "max_window_tumor_pct": 13.21,
+      "n_regions": 0,
+      "note": "No 4\u00d74-tile region reaches the 20% tumor minimum for sequencing (the most tumor-rich has 13%), so no regions are suggested."
+    },
+    {
+      "mosaic": "tumor (control)",
+      "has_tumor": true,
+      "n_tiles": 64,
+      "mean_tile_tumor_pct": 61.79,
+      "tiles_tumor_top_class_pct": 62.5,
+      "tiles_tumor_ge_50_pct": 60.94,
+      "n_windows": 25,
+      "windows_at_minimum": 25,
+      "max_window_tumor_pct": 84.01,
+      "n_regions": 3,
+      "note": "Only 3 non-overlapping 4\u00d74-tile regions are at least 90% on tissue, so 3 are shown instead of 5."
+    }
+  ]
+}
