@@ -6,6 +6,7 @@ Run with: uvicorn --factory --app-dir backend project.api:create_app
 import io
 import logging
 import re
+import shutil
 import threading
 import uuid
 from datetime import datetime
@@ -385,6 +386,18 @@ def create_app(cfg=None, store=None):
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
         return get_status(request, job_id)
+
+    @app.delete("/api/jobs/{job_id}", status_code=204)
+    def delete_job(request: Request, job_id: str):
+        """Remove a case from the worklist: its record and its images on disk. Not while it's running."""
+        status = get_status(request, job_id)  # 404 for an unknown or malformed id
+        if status.status in ("queued", "running"):
+            raise HTTPException(409, "This case is still running. Remove it once the analysis has finished.")
+        store.delete(job_id)
+        request.app.state.jobs.pop(job_id, None)
+        if JOB_ID.match(job_id):  # never a path built from anything but a uuid hex id
+            shutil.rmtree(jobs_dir / job_id, ignore_errors=True)
+        return Response(status_code=204)
 
     @app.get("/api/jobs/{job_id}/regions", response_model=Regions)
     def regions_at_size(request: Request, job_id: str, box_um: float):

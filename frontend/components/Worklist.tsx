@@ -2,8 +2,8 @@
 
 import Link from 'next/link'
 import { useEffect, useId, useMemo, useState } from 'react'
-import type { JobList, JobSummary } from '@/lib/api'
-import { meets, useCasebook, useThreshold, writeCase } from '@/lib/casebook'
+import { errorMessage, type JobList, type JobSummary } from '@/lib/api'
+import { forgetCase, meets, useCasebook, useThreshold, writeCase } from '@/lib/casebook'
 import { formatCreated, organLabel, pct } from '@/lib/format'
 import { button, Chip, DemoBadge } from './ui'
 
@@ -53,6 +53,10 @@ export default function Worklist({ initial, timeZone }: { initial: JobList; time
     }
     return !(hideReviewed && c.reviewed)
   })
+  const removed = (jobId: string) => {
+    setList((l) => ({ ...l, jobs: l.jobs.filter((j) => j.id !== jobId) }))
+    forgetCase(jobId)
+  }
   const ready = list.jobs.filter((j) => j.best_tumor != null && meets(j.best_tumor, threshold)).length
   const nRunning = list.jobs.filter((j) => j.status === 'running').length
 
@@ -124,7 +128,7 @@ export default function Worklist({ initial, timeZone }: { initial: JobList; time
           ) : (
             <ul className="mt-2 divide-y divide-line">
               {shown.map((j, i) => (
-                <CaseRow key={j.id} job={j} label={caseOf(j.id).label} reviewed={caseOf(j.id).reviewed} threshold={threshold} timeZone={timeZone} index={i} />
+                <CaseRow key={j.id} job={j} label={caseOf(j.id).label} reviewed={caseOf(j.id).reviewed} threshold={threshold} timeZone={timeZone} index={i} onRemoved={removed} />
               ))}
             </ul>
           )}
@@ -174,6 +178,7 @@ function CaseRow({
   threshold,
   timeZone,
   index,
+  onRemoved,
 }: {
   job: JobSummary
   label: string
@@ -181,8 +186,26 @@ function CaseRow({
   threshold: number
   timeZone?: string
   index: number
+  onRemoved: (id: string) => void
 }) {
   const short = job.id.slice(0, 8)
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const remove = async () => {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/jobs/${job.id}`, { method: 'DELETE' })
+      // 404: already gone (removed in another tab, or the server forgot it), so drop it here too.
+      if (res.ok || res.status === 404) return onRemoved(job.id)
+      setError(await errorMessage(res))
+    } catch {
+      setError('Could not reach the server. Try again in a moment.')
+    }
+    setBusy(false)
+    setConfirming(false)
+  }
   const ok = job.best_tumor != null && meets(job.best_tumor, threshold)
   return (
     <li
@@ -252,16 +275,48 @@ function CaseRow({
           </span>
         )}
       </div>
-      <label className="relative z-10 row-span-2 flex min-h-11 cursor-pointer items-center gap-2 justify-self-end text-xs text-ink-muted sm:row-span-1">
-        <input
-          type="checkbox"
-          checked={reviewed}
-          onChange={(e) => writeCase(job.id, { reviewed: e.target.checked })}
-          aria-label={`Reviewed: ${label || short}`}
-          className="size-4 accent-accent"
-        />
-        <span aria-hidden>Reviewed</span>
-      </label>
+      <div className="relative z-10 row-span-2 flex items-center gap-1 justify-self-end text-xs text-ink-muted sm:row-span-1">
+        {confirming ? (
+          <>
+            <span className="mr-1 hidden text-ink sm:inline">Remove this case?</span>
+            <button type="button" onClick={remove} disabled={busy} className={`${button.quiet} min-h-11 px-2 text-xs text-danger`}>
+              Confirm remove
+            </button>
+            <button type="button" onClick={() => setConfirming(false)} disabled={busy} className={`${button.quiet} min-h-11 px-2 text-xs`}>
+              Cancel
+            </button>
+          </>
+        ) : (
+          <>
+            <label className="flex min-h-11 cursor-pointer items-center gap-2 px-1">
+              <input
+                type="checkbox"
+                checked={reviewed}
+                onChange={(e) => writeCase(job.id, { reviewed: e.target.checked })}
+                aria-label={`Reviewed: ${label || short}`}
+                className="size-4 accent-accent"
+              />
+              <span aria-hidden>Reviewed</span>
+            </label>
+            {/* A running case can't be removed: its analysis is still writing results. */}
+            {job.status !== 'running' && (
+              <button
+                type="button"
+                onClick={() => setConfirming(true)}
+                aria-label={`Remove ${label || short}`}
+                className={`${button.quiet} min-h-11 px-2 text-xs`}
+              >
+                Remove
+              </button>
+            )}
+          </>
+        )}
+      </div>
+      {error && (
+        <p role="alert" className="relative z-10 col-span-full text-sm text-danger">
+          {error}
+        </p>
+      )}
     </li>
   )
 }

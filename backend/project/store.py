@@ -59,6 +59,10 @@ class MemoryStore:
     def get(self, job_id):
         return self._rows.get(job_id)
 
+    def delete(self, job_id):
+        with self._lock:
+            return self._rows.pop(job_id, None) is not None
+
     def list(self, limit=100):
         with self._lock:
             return sorted(self._rows.values(), key=lambda r: r.created_at, reverse=True)[:limit]
@@ -134,6 +138,9 @@ class PostgresStore:
     def get(self, job_id):
         rows = self._select("WHERE id = %s", (job_id,))
         return rows[0] if rows else None
+
+    def delete(self, job_id):
+        return self._run(self._sql.SQL("DELETE FROM {} WHERE id = %s").format(self._table), (job_id,)) > 0
 
     def list(self, limit=100):
         return self._select(tail="ORDER BY created_at DESC LIMIT %s", params=(limit,))

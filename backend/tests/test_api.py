@@ -3,6 +3,7 @@
 import io
 import time
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
@@ -473,3 +474,59 @@ def test_free_box_still_measures_after_a_restart(cfg):
     assert r.status_code == 200
     assert r.json() == expected
     assert r.json()["width_um"] == pytest.approx(517 * 2 * 0.25)  # display is half size; the typed 0.25 µm/px kept
+
+
+# --- removing a case from the worklist ------------------------------------------------------------
+
+def test_delete_removes_a_finished_case_its_record_and_its_images(cfg):
+    store = MemoryStore()
+    client = TestClient(create_app(cfg, store=store))
+    keep = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    poll(client, keep)
+    poll(client, job_id)
+    job_dir = Path(cfg["paths"]["jobs"]) / job_id
+    assert job_dir.is_dir()
+
+    assert client.delete(f"/api/jobs/{job_id}").status_code == 204
+    assert store.get(job_id) is None
+    assert not job_dir.exists()
+    assert [j["id"] for j in client.get("/api/jobs").json()["jobs"]] == [keep]
+    assert client.get(f"/api/jobs/{job_id}").status_code == 404
+    assert client.get(f"/api/jobs/{job_id}/display.png").status_code == 404
+    assert (Path(cfg["paths"]["jobs"]) / keep).is_dir()  # other cases are untouched
+
+
+def test_delete_works_after_a_restart(cfg):
+    store = MemoryStore()
+    before = TestClient(create_app(cfg, store=store))
+    job_id = upload(before, png_bytes(he_slide(1024, 1024))).json()["job_id"]
+    poll(before, job_id)
+    after = TestClient(create_app(cfg, store=store))
+    assert after.delete(f"/api/jobs/{job_id}").status_code == 204
+    assert after.get("/api/jobs").json()["jobs"] == []
+    assert not (Path(cfg["paths"]["jobs"]) / job_id).exists()
+
+
+def test_delete_a_failed_case(client):
+    job_id = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
+    poll(client, job_id)
+    assert client.delete(f"/api/jobs/{job_id}").status_code == 204
+    assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_delete_while_running_is_409_and_keeps_the_case(cfg):
+    app = create_app(cfg)
+    client = TestClient(app)
+    app.state.jobs["a" * 32] = Job("fake")
+    app.state.store.create("a" * 32, "fake", cfg["prompt_set"])
+    r = client.delete(f"/api/jobs/{'a' * 32}")
+    assert r.status_code == 409
+    assert "running" in r.json()["detail"]
+    assert app.state.store.get("a" * 32) is not None
+
+
+@pytest.mark.parametrize("bad_id", ["0" * 32, "..%2F..%2Fconfig", "x" * 32])
+def test_delete_unknown_or_malformed_id_is_404(client, cfg, bad_id):
+    assert client.delete(f"/api/jobs/{bad_id}").status_code == 404
+    assert Path(cfg["paths"]["jobs"]).parent.exists()  # nothing outside the jobs folder was touched

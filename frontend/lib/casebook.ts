@@ -76,6 +76,14 @@ export function writeCase(id: string, patch: Partial<CaseEntry>) {
   write(CASE(id), JSON.stringify(next))
 }
 
+// A removed case: drop its label, notes, tick and box from this browser too.
+export function forgetCase(id: string) {
+  try {
+    localStorage.removeItem(CASE(id))
+  } catch {}
+  window.dispatchEvent(new Event(CHANGED))
+}
+
 // Without an id (a result shown on its own), the entry lives in component state only.
 export function useCase(id: string | undefined): [CaseEntry, (patch: Partial<CaseEntry>) => void] {
   const stored = useSyncExternalStore(

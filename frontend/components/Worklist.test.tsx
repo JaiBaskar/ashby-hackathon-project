@@ -120,3 +120,40 @@ test('an empty filter result says so', async () => {
   await userEvent.type(screen.getByRole('searchbox', { name: /search/i }), 'zzz')
   expect(screen.getByText(/no cases match/i)).toBeInTheDocument()
 })
+
+test('a case can be removed after confirming; it leaves the list and this browser forgets its label', async () => {
+  writeCase(id('b'), { label: 'Block B7', notes: 'recut' })
+  fetchMock.mockResolvedValue(new Response(null, { status: 204 }))
+  render(<Worklist initial={{ store: 'postgres', jobs: JOBS }} />)
+  await userEvent.click(within(rows()[1]).getByRole('button', { name: 'Remove Block B7' }))
+  expect(fetchMock).not.toHaveBeenCalled() // asks first
+  await userEvent.click(within(rows()[1]).getByRole('button', { name: 'Confirm remove' }))
+  expect(fetchMock).toHaveBeenCalledWith(`/api/jobs/${id('b')}`, { method: 'DELETE' })
+  expect(caseIds()).toEqual(['a', 'c', 'd'])
+  expect(localStorage.getItem(`ssf.case.${id('b')}`)).toBeNull()
+  expect(screen.getByTestId('worklist-counts')).toHaveTextContent('3 cases')
+})
+
+test('cancelling a remove keeps the case', async () => {
+  render(<Worklist initial={{ store: 'postgres', jobs: JOBS }} />)
+  await userEvent.click(within(rows()[0]).getByRole('button', { name: /^remove/i }))
+  await userEvent.click(within(rows()[0]).getByRole('button', { name: 'Cancel' }))
+  expect(fetchMock).not.toHaveBeenCalled()
+  expect(caseIds()).toEqual(['a', 'b', 'c', 'd'])
+  expect(within(rows()[0]).getByRole('button', { name: /^remove/i })).toBeInTheDocument()
+})
+
+test('a failed remove keeps the case and says why', async () => {
+  fetchMock.mockResolvedValue(jsonResponse({ detail: 'This case is still running.' }, 409))
+  render(<Worklist initial={{ store: 'postgres', jobs: JOBS }} />)
+  await userEvent.click(within(rows()[0]).getByRole('button', { name: /^remove/i }))
+  await userEvent.click(within(rows()[0]).getByRole('button', { name: 'Confirm remove' }))
+  expect(caseIds()).toEqual(['a', 'b', 'c', 'd'])
+  expect(within(rows()[0]).getByRole('alert')).toHaveTextContent('This case is still running.')
+})
+
+test('a running case cannot be removed yet', () => {
+  render(<Worklist initial={{ store: 'postgres', jobs: JOBS }} />)
+  expect(within(rows()[2]).queryByRole('button', { name: /^remove/i })).not.toBeInTheDocument()
+  expect(within(rows()[3]).getByRole('button', { name: /^remove/i })).toBeInTheDocument() // failed cases can
+})

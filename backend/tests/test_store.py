@@ -78,6 +78,15 @@ def test_unknown_id_is_none(store):
     assert store.get("nope") is None
 
 
+def test_delete_removes_only_that_job(store):
+    store.create("a1", model="fake", prompt_set="v2", created_at=T0)
+    store.create("b2", model="fake", prompt_set="v2", created_at=T0)
+    assert store.delete("a1") is True
+    assert store.get("a1") is None
+    assert [r.id for r in store.list()] == ["b2"]
+    assert store.delete("a1") is False  # already gone
+
+
 def test_recover_marks_unfinished_jobs_as_errors(store):
     store.create("done", model="fake", prompt_set="v2", created_at=T0)
     store.finish("done", RESULT, cancer_type=None)
