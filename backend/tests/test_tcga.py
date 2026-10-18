@@ -219,3 +219,50 @@ def test_scores_file_is_per_prompt_set(cfg, tmp_path, monkeypatch):
     monkeypatch.setenv("TCGA_DIR", str(tmp_path))
     assert scores_path(cfg) == tmp_path / f"app_scores_{cfg['prompt_set']}.csv"
     assert scores_path({**cfg, "prompt_set": "v9"}).name == "app_scores_v9.csv"
+
+
+# --- explore (train only) and evaluating a chosen method on test ---------------------------------
+
+from project.tcga import explore
+from tests.test_purity_models import synthetic
+
+
+def labelled(df, test_hospitals=("H8", "H9")):
+    labels = df[["slide_id", "hospital", "truth_pct", "pathologist_pct"]].assign(
+        split=np.where(df["hospital"].isin(test_hospitals), "test", "train"))
+    feats = df.drop(columns=["hospital", "truth_pct", "pathologist_pct"])
+    return labels, feats
+
+
+def test_explore_compares_every_method_on_train_hospitals_only(cfg):
+    labels, feats = labelled(synthetic(signal=True))
+    out = explore(labels, feats, "train", cutoff=cfg["tcga"]["catch_cutoff"], seed=cfg["seed"])
+    assert out["split"] == "train" and out["n_slides"] == (labels.split == "train").sum()
+    assert out["cv"] == "leave-one-hospital-out" and out["n_hospitals"] == 8
+    from project.purity_models import METHODS
+    assert set(out["methods"]) == set(METHODS) | {"pathologist"}
+    for m in out["methods"].values():
+        assert set(m) >= {"mae", "pearson_r"}
+    assert out["methods"]["ridge_embedding"]["mae"] < out["methods"]["dummy"]["mae"]
+    assert out["shuffled_labels"]["ridge_embedding_mae"] >= 0.95 * out["shuffled_labels"]["dummy_mae"]
+
+
+def test_explore_refuses_the_test_split(cfg):
+    labels, feats = labelled(synthetic())
+    with pytest.raises(ValueError, match="test"):
+        explore(labels, feats, "test", cutoff=60, seed=1)
+
+
+def test_evaluate_adds_a_chosen_method_fit_on_train(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df)
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    m = out["methods"]["app_ridge_embedding"]
+    assert set(m) == {"mae", "pearson_r", "catch_rate"}
+    assert out["bootstrap"]["app_ridge_embedding"]["verdict"] in ("better", "comparable", "worse")
+    assert out["chosen_method"] == "ridge_embedding"
+    # changing test truth leaves the method's predictions alone (it never saw test)
+    moved = labels.assign(truth_pct=np.where(labels.split == "test", 50.0, labels.truth_pct))
+    again = evaluate(moved, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    assert again["predictions_fingerprint"] == out["predictions_fingerprint"]

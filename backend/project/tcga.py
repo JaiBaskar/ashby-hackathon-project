@@ -5,13 +5,16 @@
     python -m project.tcga score --split train  # GPU job: CONCH tile embeddings (saved) → app_scores_<prompts>.csv
     python -m project.tcga score --embeddings-only  # CPU job: re-score saved embeddings after a prompt change
     python -m project.tcga check --split train  # CPU: app vs. pathologist on train only, before test is scored
-    python -m project.tcga evaluate             # CPU: results/tcga_validation_<prompts>.json
+    python -m project.tcga features             # CPU job: slide-level features from the saved embeddings
+    python -m project.tcga explore --split train  # leave-one-hospital-out comparison of methods, train only
+    python -m project.tcga evaluate --method M  # CPU: results/tcga_validation_<prompts>.json, once, on test
 
 labels.csv, slides and per-slide scores are patient-level and stay under tcga_dir (or $TCGA_DIR) (gitignored, AGENTS.md §3, §6).
 Only aggregate numbers go to results/.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -27,6 +30,7 @@ from project.ingest import open_slide
 from project.labels import assign_splits, build_labels, check_labels, read_absolute, select_slides
 from project.metrics import bootstrap_mae_diff, catch_rate, mae, pearson_r, verdict
 from project.model import load_backend
+from project.purity_models import METHODS, cross_validate, fit_predict, slide_features
 from project.tiling import build_grid, read_tiles
 
 
@@ -95,14 +99,20 @@ def method_metrics(truth, pred, cutoff):
     return {"mae": mae(truth, pred), "pearson_r": pearson_r(truth, pred), "catch_rate": catch_rate(truth, pred, cutoff)}
 
 
-def evaluate(labels, scores, tcga_cfg, seed):
-    """App (raw and mapped) vs. pathologist vs. ABSOLUTE, on exactly the same test slides (AGENTS.md §9)."""
+def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
+    """App (raw and mapped) vs. pathologist vs. ABSOLUTE, on exactly the same test slides (AGENTS.md §9).
+
+    With `features` and a `method` (chosen beforehand with `explore` on train), that method is fit on the train
+    hospitals and reported too. A dummy (train median) is always reported as the bar to beat.
+    """
     split_hospitals = labels.groupby("split")["hospital"].apply(set)
     shared = split_hospitals.get("train", set()) & split_hospitals.get("test", set())
     if shared:
         raise ValueError(f"hospital in both train and test: {', '.join(sorted(shared))}")
 
     df = labels.merge(scores[["slide_id", "app_tumor_pct"]], on="slide_id", how="left")
+    if method is not None:  # only slides with features, so every method is compared on the same slides
+        df = df.merge(features, on="slide_id", how="inner", suffixes=("", "_feat"))
     train = df[(df["split"] == "train") & df["app_tumor_pct"].notna()]
     test_all = df[df["split"] == "test"]
     test = test_all[test_all["app_tumor_pct"].notna()]
@@ -118,7 +128,10 @@ def evaluate(labels, scores, tcga_cfg, seed):
         "pathologist": test["pathologist_pct"].to_numpy(),
         "app_raw": test["app_tumor_pct"].to_numpy(),
         "app_calibrated": apply_mapping(test["app_tumor_pct"], slope, intercept),
+        "dummy": np.full(len(test), float(np.median(train["truth_pct"]))),
     }
+    if method is not None:
+        preds[f"app_{method}"] = fit_predict(train, test, method, seed)
     out = {
         "question": "Does the app's whole-slide tumor % track ABSOLUTE purity better than the pathologist's %?",
         "split": "test",
@@ -132,7 +145,11 @@ def evaluate(labels, scores, tcga_cfg, seed):
         "bootstrap": {},
         "seed": seed,
     }
-    for m in ("app_raw", "app_calibrated"):
+    if method is not None:
+        out["chosen_method"] = method
+        rounded = np.round(preds[f"app_{method}"], 6).tobytes()
+        out["predictions_fingerprint"] = hashlib.sha256(rounded).hexdigest()[:16]
+    for m in [k for k in preds if k != "pathologist"]:
         b = bootstrap_mae_diff(truth, preds["pathologist"], preds[m], n=n_boot, seed=seed)
         b["verdict"] = verdict(b["ci_low"], b["ci_high"])
         b["meaning"] = "pathologist MAE − app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
@@ -162,6 +179,37 @@ def split_check(labels, scores, split, cutoff):
     return out
 
 
+def explore(labels, features, split, cutoff, seed):
+    """Every purity method on one non-test split, by leave-one-hospital-out CV: pick a method before test.
+
+    Each slide is predicted by a fit that never saw its hospital. A shuffled-label run of the ridge model shows
+    what "no real signal" looks like. Never the test split.
+    """
+    if split == "test":
+        raise ValueError("explore never looks at the test split; pick a method on train, then run `evaluate`")
+    df = labels[labels["split"] == split].merge(features, on="slide_id", how="inner", suffixes=("", "_feat"))
+    df = df.reset_index(drop=True)
+    if df["hospital"].nunique() < 3:
+        raise ValueError(f"need ≥ 3 {split} hospitals with features, have {df['hospital'].nunique()}")
+    truth = df["truth_pct"].to_numpy(float)
+
+    def metrics(pred):
+        out = {"mae": mae(truth, pred), "pearson_r": pearson_r(truth, pred)}
+        if (truth < cutoff).any():
+            out["catch_rate"] = catch_rate(truth, pred, cutoff)
+        return out
+
+    out = {"split": split, "n_slides": int(len(df)), "n_hospitals": int(df["hospital"].nunique()),
+           "n_below_cutoff": int((truth < cutoff).sum()), "cv": "leave-one-hospital-out", "seed": seed,
+           "methods": {m: metrics(cross_validate(df, m, seed)) for m in METHODS}}
+    out["methods"]["pathologist"] = metrics(df["pathologist_pct"].to_numpy(float))
+    shuffled = df.assign(truth_pct=np.random.default_rng(seed).permutation(truth))
+    shuffled_mae = lambda m: mae(shuffled["truth_pct"], cross_validate(shuffled, m, seed))
+    out["shuffled_labels"] = {"ridge_embedding_mae": shuffled_mae("ridge_embedding"),
+                              "dummy_mae": shuffled_mae("dummy")}
+    return out
+
+
 def slides_to_score(labels, done, splits, exists):
     """Selected slides of the given splits that are downloaded and not yet scored, in labels.csv order."""
     picked = labels[labels["selected"] & labels["split"].isin(splits)]
@@ -181,6 +229,10 @@ def slide_path(cfg, slide_id):
 
 def emb_path(cfg, slide_id):
     return tcga_dir(cfg) / "embeddings" / f"{slide_id}.npz"
+
+
+def features_path(cfg):
+    return tcga_dir(cfg) / f"features_{cfg['prompt_set']}.csv"
 
 
 def scores_path(cfg):
@@ -257,6 +309,36 @@ def cmd_score(cfg, args):
         print(f"[{i}/{len(todo)}] {time.monotonic() - start:.0f} s {'error' if row['error'] else 'ok'}", flush=True)
 
 
+def cmd_features(cfg, args):
+    """Slide-level features from saved embeddings (class probabilities with the current prompts, tile shares,
+    mean embedding). CPU job: it loads CONCH's text encoder."""
+    cfg = {**cfg, "model": args.model}
+    backend = load_backend(cfg)
+    organ = cfg["tcga"]["organ"]
+    labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
+    rows = []
+    for slide_id in labels.loc[labels["selected"], "slide_id"]:
+        saved = emb_path(cfg, slide_id)
+        if saved.exists():
+            z = np.load(saved)
+            probs = backend.classify(z["feats"], organ)
+            rows.append({"slide_id": slide_id, **slide_features(probs, z["feats"], cfg["classes"])})
+    pd.DataFrame(rows).to_csv(features_path(cfg), index=False)
+    print(f"{len(rows)} slides -> {features_path(cfg)} (organ {organ}, prompts {cfg['prompt_set']})")
+
+
+def cmd_explore(cfg, args):
+    labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
+    features = pd.read_csv(features_path(cfg))
+    out = explore(labels, features, args.split, cfg["tcga"]["catch_cutoff"], cfg["seed"])
+    out.update(organ=cfg["tcga"]["organ"], prompt_set=cfg["prompt_set"])
+    path = repo_path(cfg["paths"]["results"]) / f"tcga_explore_{args.split}_{cfg['prompt_set']}.json"
+    path.write_text(json.dumps(out, indent=2) + "\n")
+    print(json.dumps(out, indent=2))
+    best = min(METHODS, key=lambda m: out["methods"][m]["mae"])
+    print(f"Lowest cross-validated MAE on {args.split}: {best}. Compare it with dummy before choosing.")
+
+
 def cmd_evaluate(cfg, args):
     labels = pd.read_csv(tcga_dir(cfg) / "labels.csv")
     scores = pd.read_csv(scores_path(cfg))
@@ -264,7 +346,8 @@ def cmd_evaluate(cfg, args):
     models = sorted(scores["model"].dropna().unique())
     if models != ["conch"] and not args.allow_fake:
         sys.exit(f"{scores_path(cfg).name} has model(s) {models}; the validation must use CONCH.")
-    result = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"])
+    features = pd.read_csv(features_path(cfg)) if args.method else None
+    result = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=features, method=args.method)
     result.update(project=cfg["tcga"]["project"], slide_kinds=cfg["tcga"]["slide_kinds"], model=models,
                   organ=cfg["tcga"]["organ"], prompt_set=cfg["prompt_set"])
     out = repo_path(cfg["paths"]["results"]) / f"tcga_validation_{cfg['prompt_set']}.json"
@@ -298,11 +381,17 @@ def main(argv=None):
                    help="only slides with saved embeddings: re-score new prompts without reading slides (CPU is fine)")
     c = sub.add_parser("check")
     c.add_argument("--split", default="train", choices=["train", "cal"])
+    f = sub.add_parser("features")
+    f.add_argument("--model", default="conch", choices=["conch", "fake"])
+    x = sub.add_parser("explore")
+    x.add_argument("--split", default="train", choices=["train", "cal"])
     e = sub.add_parser("evaluate")
+    e.add_argument("--method", choices=METHODS, help="also report this method (chosen with `explore` on train)")
     e.add_argument("--allow-fake", action="store_true", help="for pipeline checks only; never report these numbers")
     args = p.parse_args(argv)
     cfg = load_config()
     {"labels": cmd_labels, "download": cmd_download, "score": cmd_score, "check": cmd_check,
+     "features": cmd_features, "explore": cmd_explore,
      "evaluate": cmd_evaluate}[args.cmd](cfg, args)
 
 

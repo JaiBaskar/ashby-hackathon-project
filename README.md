@@ -57,8 +57,14 @@ sbatch scripts/tcga_score.sbatch --split test                         # approval
 #    After a prompt change: re-score from the saved embeddings on CPU (no GPU hours)
 sbatch scripts/tcga_rescore.sbatch                                    # approval
 
+# 3b. Pick a purity method on TRAIN hospitals only (CPU job, no GPU): features from the saved embeddings,
+#     then a leave-one-hospital-out comparison of dummy, zero-shot summaries and a ridge on the embeddings.
+sbatch scripts/tcga_explore.sbatch                                    # approval
+cat results/tcga_explore_train_<prompt_set>.json
+
 # 4. the comparison (CPU, seconds): writes results/tcga_validation.json
-cd backend && python -m project.tcga evaluate
+sbatch scripts/tcga_explore.sbatch     # approval: after test is scored, refreshes features for every slide
+cd backend && python -m project.tcga evaluate --method <chosen> && cd ..   # seconds; no model is loaded
 ```
 
 `results/tcga_validation_<prompt_set>.json` reports, on the test hospitals only: slide and hospital counts, MAE, Pearson r and the catch rate below 60% for the pathologist, the raw app % and the app % after a straight-line mapping fit on the train hospitals; and a 1,000-resample bootstrap of (pathologist MAE − app MAE) with its 95% interval. The app is called "better" only if that interval is entirely above 0. `check` never looks at the test split: any change to the method (e.g. the prompts) is judged on train hospitals only, so the test result stays honest. `labels.csv`, the slides, tile embeddings and per-slide scores (`app_scores_<prompt_set>.csv`, one file per prompt set) stay in `$TCGA_DIR` and are never committed.
