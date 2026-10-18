@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 export const SHORTCUTS: [string[], string][] = [
   [['1', '–', '9'], 'Select a region'],
   [['H'], 'Toggle the tumor heatmap'],
+  [['N'], 'Toggle the necrosis heatmap'],
   [['D'], 'Draw your own box'],
   [['←', '→', '↑', '↓'], 'Move your box (Shift: resize it)'],
   [['Del'], 'Remove your box'],

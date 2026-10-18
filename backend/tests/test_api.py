@@ -69,6 +69,8 @@ def test_upload_runs_to_done_and_result_validates(client):
     assert result.image.url == f"/api/jobs/{job_id}/display.png"
     assert result.heatmap_url == f"/api/jobs/{job_id}/heatmap.png"
     assert 0.0 <= result.heatmap_range.low < result.heatmap_range.high <= 1.0
+    assert result.necrosis_heatmap_url == f"/api/jobs/{job_id}/necrosis_heatmap.png"
+    assert 0.0 <= result.necrosis_heatmap_range.low < result.necrosis_heatmap_range.high <= 1.0
     assert result.image.mpp_estimated is True
     assert sum(result.slide_composition.values()) == pytest.approx(1.0)
     for region in result.regions:
@@ -80,15 +82,16 @@ def test_results_saved_before_heatmap_ranges_still_load(client):
     # Postgres keeps old Result JSON; jobs stored before heatmap_range existed must still open from history.
     job_id = upload(client, png_bytes(he_slide(1024, 1024))).json()["job_id"]
     body, _ = poll(client, job_id)
-    old = {k: v for k, v in body["result"].items() if k != "heatmap_range"}
-    assert Result.model_validate(old).heatmap_range is None
+    new = ("heatmap_range", "necrosis_heatmap_url", "necrosis_heatmap_range")
+    old = Result.model_validate({k: v for k, v in body["result"].items() if k not in new})
+    assert old.heatmap_range is None and old.necrosis_heatmap_url is None and old.necrosis_heatmap_range is None
 
 
 def test_display_and_heatmap_pngs_are_served_at_display_size(client):
     job_id = upload(client, png_bytes(he_slide(2048, 1536))).json()["job_id"]
     body, _ = poll(client, job_id)
     w, h = body["result"]["image"]["width"], body["result"]["image"]["height"]
-    for name, mode in (("display.png", "RGB"), ("heatmap.png", "RGBA")):
+    for name, mode in (("display.png", "RGB"), ("heatmap.png", "RGBA"), ("necrosis_heatmap.png", "RGBA")):
         r = client.get(f"/api/jobs/{job_id}/{name}")
         assert r.status_code == 200 and r.headers["content-type"] == "image/png"
         img = Image.open(io.BytesIO(r.content))
@@ -146,6 +149,7 @@ def test_unknown_job_is_404(client):
     assert client.get("/api/jobs/nope").status_code == 404
     assert client.get("/api/jobs/nope/display.png").status_code == 404
     assert client.get("/api/jobs/nope/heatmap.png").status_code == 404
+    assert client.get("/api/jobs/nope/necrosis_heatmap.png").status_code == 404
 
 
 def test_blank_image_ends_in_error(client):
@@ -283,7 +287,7 @@ def test_finished_job_survives_a_restart(cfg):
     before = TestClient(create_app(cfg, store=store))
     job_id = upload(before, png_bytes(he_slide(2048, 1536))).json()["job_id"]
     done, _ = poll(before, job_id)
-    pngs = {n: before.get(f"/api/jobs/{job_id}/{n}").content for n in ("display.png", "heatmap.png")}
+    pngs = {n: before.get(f"/api/jobs/{job_id}/{n}").content for n in ("display.png", "heatmap.png", "necrosis_heatmap.png")}
 
     after = TestClient(create_app(cfg, store=store))  # new process: empty memory, same store and disk
     body = after.get(f"/api/jobs/{job_id}").json()

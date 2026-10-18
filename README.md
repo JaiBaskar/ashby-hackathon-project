@@ -6,13 +6,13 @@ What a pathologist gets:
 
 - **Worklist:** every case with a slide thumbnail, best-region tumor %, a "ready for sequencing" verdict, live progress for running cases, search, filters and a reviewed tick.
 - **Case workspace:**
-  - the slide on a dark stage, with zoom and a tumor heatmap at adjustable opacity;
+  - the slide on a dark stage, with zoom and tumor (deep orange) and necrosis (blue) heatmaps at adjustable opacity, each with a banded color key;
   - the five suggested regions as numbered boxes and in a sortable table;
   - each region checked against the lab's minimum tumor fraction for sequencing (default 20%).
 - **Boxes you can reshape:** grab any box by a corner or edge, or draw your own; the numbers are re-measured while you drag, from the stored tile scores. Suggestions can also be re-ranked at 0.5, 1 or 2 mm to match a punch.
 - **Sampling sheet:** a print-ready page for the histotech, with the instruction, the slide with numbered boxes and a 1 mm scale bar, the region table, notes and sign-off lines. **Copy summary** puts the same numbers on the clipboard for the report.
 - **Case labels, notes and reviewed ticks stay in your browser**, never on the server or in the shared history, because they can identify a patient.
-- **Keyboard first:** 1–9 regions, H heatmap, D draw, +/−/0 zoom, J/K next/previous case, P sheet, ? for the list.
+- **Keyboard first:** 1–9 regions, H tumor heatmap, N necrosis heatmap, D draw, +/−/0 zoom, J/K next/previous case, P sheet, ? for the list.
 
 ## How it fits together
 

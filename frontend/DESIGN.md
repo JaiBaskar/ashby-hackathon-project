@@ -38,7 +38,7 @@ Dark mode follows `prefers-color-scheme` by redefining the chrome tokens on `:ro
 
 ### Tissue classes
 
-For the composition bar and its legend: `class-tumor` `#5B3A8C`, `class-stroma` `#D99AB3`, `class-immune` `#3C5A7A`, `class-necrosis` `#8C6A3F`, `class-normal` `#7FA996`, `class-fat-other` `#CBC6BC`. Tumor and stroma echo hematoxylin and eosin so the bar reads like the slide. Every segment also carries its name and percentage as text, so color is never the only label. The tumor heatmap overlay is drawn by the backend (`HEATMAP_RGB` in `backend/project/regions.py`), not by these tokens.
+For the composition bar and its legend: `class-tumor` `#5B3A8C`, `class-stroma` `#D99AB3`, `class-immune` `#3C5A7A`, `class-necrosis` `#8C6A3F`, `class-normal` `#7FA996`, `class-fat-other` `#CBC6BC`. Tumor and stroma echo hematoxylin and eosin so the bar reads like the slide. Every segment also carries its name and percentage as text, so color is never the only label. The tumor (deep orange) and necrosis (blue) heatmap overlays are drawn by the backend (`HEATMAP_RGB` in `backend/project/regions.py`), not by these tokens; their keys in `SlideStage.tsx` (`HEATMAP_KEYS`) mirror those tints and sit on `slide-glass`.
 
 ## Region boxes
 

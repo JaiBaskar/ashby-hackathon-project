@@ -11,20 +11,83 @@ export const zoomOut = (z: number) => [...ZOOMS].reverse().find((v) => v < z) ??
 
 type ViewerProps = React.ComponentProps<typeof SlideViewer>
 
-// The overlay's color scale runs over this slide's own tumor-probability range (backend heatmap_range), so the
-// legend gives the numbers. Cases saved before ranges existed have none and get the plain description.
-function HeatmapLegend({ range }: { range?: { low: number; high: number } | null }) {
-  if (!range) return <span data-testid="heatmap-legend" className="flex items-center gap-2">Heatmap: brighter amber = more tumor</span>
+// The overlays' colors per band (lightest to darkest), top opacity and band count: the same as the backend's
+// (HEATMAP_RAMP, HEATMAP_MAX_ALPHA, HEATMAP_BANDS in regions.py), so each shade on the key is exactly a shade on
+// the slide. Tumor's scale is stretched over each slide's own range; necrosis uses one fixed scale (NECROSIS_RANGE).
+export const HEATMAP_KEYS = {
+  tumor: { label: 'Tumor', ramp: ['251 146 60', '234 108 18', '194 75 10', '140 50 8'], scale: 'scaled to this slide' },
+  necrosis: { label: 'Necrosis', ramp: ['96 165 250', '37 99 235', '29 63 190', '23 37 120'], scale: 'same scale on every slide' },
+} as const
+const HEATMAP_MAX_ALPHA = 0.65
+const HEATMAP_BANDS = 4
+
+// One overlay's key: its color scale (backend heatmap_range / necrosis_heatmap_range) split into bands that darken
+// as the probability rises, each shown over a slide-glass background with its probability limits underneath. Below
+// the low end the slide is left clear; the top band also covers everything above the high end. Cases saved before
+// ranges existed have none and get a plain description.
+function HeatmapKey({ kind, range, opacity }: { kind: keyof typeof HEATMAP_KEYS; range?: { low: number; high: number } | null; opacity: number }) {
+  const { label, ramp, scale } = HEATMAP_KEYS[kind]
+  const name = label.toLowerCase()
+  if (!range) {
+    return (
+      <p data-testid={`${kind}-key`} className="text-xs text-stage-muted">
+        {label} heatmap: darker color = more {name}
+      </p>
+    )
+  }
+  const stops = Array.from({ length: HEATMAP_BANDS + 1 }, (_, i) => range.low + ((range.high - range.low) * i) / HEATMAP_BANDS)
   return (
-    <span data-testid="heatmap-legend" className="flex items-center gap-2">
-      Tumor probability <span className="num">{pct(range.low)}</span>
-      {/* Same amber and top opacity as the backend overlay (HEATMAP_RGB, HEATMAP_MAX_ALPHA in regions.py). */}
+    <figure data-testid={`${kind}-key`} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-stage-muted">
+      <figcaption className="w-24 font-semibold text-stage-ink">{label} probability</figcaption>
+      <div
+        role="img"
+        aria-label={`${label} key: clear below ${pct(range.low)}, then ${HEATMAP_BANDS} shades, each darker, up to ${pct(range.high)} and above`}
+        className="w-[min(18rem,100%)]"
+      >
+        <div className="flex gap-px overflow-hidden rounded-sm border border-stage-line bg-slide-glass">
+          {stops.slice(1).map((_, i) => (
+            <span
+              key={i}
+              data-testid={`${kind}-band`}
+              className="h-3 flex-1"
+              style={{ background: `rgb(${ramp[i]} / ${(HEATMAP_MAX_ALPHA * opacity * (i + 1)) / HEATMAP_BANDS})` }}
+            />
+          ))}
+        </div>
+        <div aria-hidden className="relative mt-0.5 h-4">
+          {stops.map((v, i) => (
+            <span
+              key={i}
+              className="num absolute -translate-x-1/2 first:translate-x-0 last:-translate-x-full"
+              style={{ left: `${(i / HEATMAP_BANDS) * 100}%` }}
+            >
+              {pct(v)}
+              {i === HEATMAP_BANDS && '+'}
+            </span>
+          ))}
+        </div>
+      </div>
+      <span>
+        darker = more {name}; {scale}; clear below {pct(range.low)}
+      </span>
+    </figure>
+  )
+}
+
+// A toolbar switch for one overlay; its track takes the overlay's tint when on.
+function HeatmapSwitch({ kind, on, onToggle }: { kind: keyof typeof HEATMAP_KEYS; on: boolean; onToggle: () => void }) {
+  const { label, ramp } = HEATMAP_KEYS[kind]
+  return (
+    <button type="button" role="switch" aria-checked={on} onClick={onToggle} className={button.stage}>
       <span
-        className="inline-block h-2 w-16 rounded-full border border-stage-line"
-        style={{ background: 'linear-gradient(to right, rgba(255, 196, 0, 0), rgba(255, 196, 0, 0.65))' }}
-      />
-      <span className="num">{pct(range.high)}</span> · scaled to this slide
-    </span>
+        aria-hidden
+        className={`relative h-4 w-7 rounded-full transition-colors duration-fast ${on ? '' : 'bg-stage-line'}`}
+        style={on ? { background: `rgb(${ramp[1]})` } : undefined}
+      >
+        <span className={`absolute top-0.5 left-0.5 size-3 rounded-full bg-stage-ink transition-transform duration-fast ease-standard ${on ? 'translate-x-3' : ''}`} />
+      </span>
+      {label} heatmap
+    </button>
   )
 }
 
@@ -66,6 +129,8 @@ export default function SlideStage({
   onDraw,
   showHeatmap,
   onHeatmap,
+  showNecrosis,
+  onNecrosis,
   heatmapOpacity,
   onHeatmapOpacity,
 }: {
@@ -76,6 +141,8 @@ export default function SlideStage({
   onDraw: (e: React.MouseEvent) => void
   showHeatmap: boolean
   onHeatmap: () => void
+  showNecrosis: boolean
+  onNecrosis: () => void
   heatmapOpacity: number
   onHeatmapOpacity: (v: number) => void
 }) {
@@ -132,13 +199,9 @@ export default function SlideStage({
           Draw a box
         </button>
         <span aria-hidden className="mx-1 h-5 w-px bg-stage-line" />
-        <button type="button" role="switch" aria-checked={showHeatmap} onClick={onHeatmap} className={button.stage}>
-          <span aria-hidden className={`relative h-4 w-7 rounded-full transition-colors duration-fast ${showHeatmap ? 'bg-box-best' : 'bg-stage-line'}`}>
-            <span className={`absolute top-0.5 left-0.5 size-3 rounded-full bg-stage-ink transition-transform duration-fast ease-standard ${showHeatmap ? 'translate-x-3' : ''}`} />
-          </span>
-          Tumor heatmap
-        </button>
-        {showHeatmap && (
+        <HeatmapSwitch kind="tumor" on={showHeatmap} onToggle={onHeatmap} />
+        {viewer.result.necrosis_heatmap_url && <HeatmapSwitch kind="necrosis" on={showNecrosis} onToggle={onNecrosis} />}
+        {(showHeatmap || showNecrosis) && (
           <label className="flex items-center gap-2 px-2 text-xs text-stage-muted">
             <span className="sr-only">Heatmap opacity</span>
             <input
@@ -149,7 +212,7 @@ export default function SlideStage({
               value={heatmapOpacity}
               aria-label="Heatmap opacity"
               onChange={(e) => onHeatmapOpacity(Number(e.target.value))}
-              className="w-24 accent-box-best"
+              className="w-24 accent-stage-ink"
             />
             <span className="num w-9">{heatmapOpacity}%</span>
           </label>
@@ -184,8 +247,13 @@ export default function SlideStage({
         <span className="flex items-center gap-2">
           <span className="free-box inline-block size-3.5 rounded-[2px]" /> Your box
         </span>
-        {showHeatmap && <HeatmapLegend range={viewer.result.heatmap_range} />}
       </div>
+      {(showHeatmap || showNecrosis) && (
+        <div className="space-y-2 border-t border-stage-line px-3 py-2.5">
+          {showHeatmap && <HeatmapKey kind="tumor" range={viewer.result.heatmap_range} opacity={heatmapOpacity / 100} />}
+          {showNecrosis && <HeatmapKey kind="necrosis" range={viewer.result.necrosis_heatmap_range} opacity={heatmapOpacity / 100} />}
+        </div>
+      )}
     </section>
   )
 }

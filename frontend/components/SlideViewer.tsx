@@ -35,6 +35,7 @@ interface Props {
   selected: number
   onSelect: (rank: number) => void
   showHeatmap: boolean
+  showNecrosis?: boolean
   heatmapOpacity?: number
   // The user's own box (display px), the drawing mode that creates it, and its callbacks.
   free: Rect | null
@@ -89,6 +90,16 @@ export default function SlideViewer(props: Props) {
         <img
           data-testid="heatmap"
           src={result.heatmap_url}
+          alt=""
+          aria-hidden
+          style={{ opacity: props.heatmapOpacity ?? 1 }}
+          className="pointer-events-none absolute inset-0 h-full w-full animate-enter"
+        />
+      )}
+      {props.showNecrosis && result.necrosis_heatmap_url && (
+        <img
+          data-testid="necrosis-heatmap"
+          src={result.necrosis_heatmap_url}
           alt=""
           aria-hidden
           style={{ opacity: props.heatmapOpacity ?? 1 }}

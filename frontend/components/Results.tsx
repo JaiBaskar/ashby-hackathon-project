@@ -71,6 +71,7 @@ export default function Results({
   const result: Result = sized ? { ...initial, box_um: sized.box_um, regions: sized.regions, note: sized.note } : initial
   const [selected, setSelected] = useState<number | 'free'>(result.regions[0]?.rank ?? 0)
   const [showHeatmap, setShowHeatmap] = useState(false)
+  const [showNecrosis, setShowNecrosis] = useState(false)
   const region = result.regions.find((r) => r.rank === selected)
   const n = result.regions.length
 
@@ -219,6 +220,7 @@ export default function Results({
     const rank = Number(e.key)
     if (rank >= 1 && rank <= 9 && result.regions.some((r) => r.rank === rank)) setSelected(rank)
     else if (e.key === 'h' || e.key === 'H') setShowHeatmap((v) => !v)
+    else if ((e.key === 'n' || e.key === 'N') && result.necrosis_heatmap_url) setShowNecrosis((v) => !v)
     else if (e.key === 'd' || e.key === 'D') {
       drewNew.current = false
       setDrawing(true)
@@ -301,6 +303,8 @@ export default function Results({
             onDraw={drawButton}
             showHeatmap={showHeatmap}
             onHeatmap={() => setShowHeatmap((v) => !v)}
+            showNecrosis={showNecrosis}
+            onNecrosis={() => setShowNecrosis((v) => !v)}
             heatmapOpacity={heatmapOpacity}
             onHeatmapOpacity={setHeatmapOpacity}
             viewer={{
@@ -308,6 +312,7 @@ export default function Results({
               selected: selected === 'free' ? -1 : selected,
               onSelect: setSelected,
               showHeatmap,
+              showNecrosis,
               free,
               freeSelected: selected === 'free',
               freeLabel: `Your box${measured ? `: ${pct(measured.composition.tumor)} tumor` : ''}`,

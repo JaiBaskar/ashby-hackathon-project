@@ -46,6 +46,9 @@
   --box-stroke-best: 4px;
   --box-stroke-other: 2px;
 
+  /* What a heatmap key's shades sit on, so they look as they do over the pale slide. Same in both themes. */
+  --color-slide-glass: #F4F0F2;
+
   /* Tissue classes, for the composition bar and legend. */
   --color-class-tumor: #5B3A8C;
   --color-class-stroma: #D99AB3;

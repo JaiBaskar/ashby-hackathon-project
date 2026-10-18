@@ -1,4 +1,4 @@
-"""Phase 3: region ranking, rule-based reasons and the tumor heatmap. Synthetic score grids only, no images."""
+"""Phase 3: region ranking, rule-based reasons and the tumor and necrosis heatmaps. Synthetic score grids only, no images."""
 
 import colorsys
 import re
@@ -10,7 +10,9 @@ from project.config import load_config
 from project.regions import (
     HEATMAP_MAX_ALPHA,
     HEATMAP_MIN_SPAN,
-    HEATMAP_RGB,
+    HEATMAP_BANDS,
+    HEATMAP_RAMP,
+    NECROSIS_RANGE,
     box_tiles,
     default_box_um,
     measure_box,
@@ -20,11 +22,10 @@ from project.regions import (
     region_score,
     score_grid,
     slide_composition,
+    class_heatmap,
     heatmap_range,
-    tumor_heatmap,
 )
 from project.tiling import Tile
-from tests.synthetic import PINK, PURPLE
 
 
 @pytest.fixture
@@ -405,7 +406,7 @@ def test_heatmap_places_tile_at_its_display_position(cfg):
     probs = np.full((4, 6, len(classes)), np.nan)
     probs[1, 3] = grid(cfg, 1, 1, tumor=0.9)[0, 0]
     # 100 original px per tile, display downsampled 2x -> 50 display px per tile; display is 300 x 200.
-    img = tumor_heatmap(probs, classes, tile_size=100, scale=2.0, display_size=(300, 200), value_range=(0.0, 1.0))
+    img = class_heatmap(probs, classes, "tumor", tile_size=100, scale=2.0, display_size=(300, 200), value_range=(0.0, 1.0))
     assert img.size == (300, 200) and img.mode == "RGBA"
     arr = np.asarray(img)
     assert arr.shape == (200, 300, 4)
@@ -417,7 +418,7 @@ def test_heatmap_places_tile_at_its_display_position(cfg):
 def test_heatmap_opacity_follows_tumor(cfg):
     classes = cfg["classes"]
     probs = np.concatenate([grid(cfg, 1, 1, tumor=0.2), grid(cfg, 1, 1, tumor=0.8)], axis=1)
-    arr = np.asarray(tumor_heatmap(probs, classes, tile_size=10, scale=1.0, display_size=(20, 10)))
+    arr = np.asarray(class_heatmap(probs, classes, "tumor", tile_size=10, scale=1.0, display_size=(20, 10)))
     assert arr[5, 15, 3] > arr[5, 5, 3]
 
 
@@ -433,7 +434,7 @@ def tumor_grid(cfg, values):
 def alpha_map(cfg, values, tile=20, **kw):
     values = np.asarray(values, float)
     rows, cols = values.shape
-    img = tumor_heatmap(tumor_grid(cfg, values), cfg["classes"], tile_size=tile, scale=1.0,
+    img = class_heatmap(tumor_grid(cfg, values), cfg["classes"], "tumor", tile_size=tile, scale=1.0,
                         display_size=(cols * tile, rows * tile), **kw)
     return np.asarray(img)[..., 3].astype(int)
 
@@ -494,7 +495,7 @@ def test_heatmap_fades_where_the_tile_grid_ends_before_the_image(cfg):
     # Only whole tiles are cut, so a strip at the right and bottom is never analyzed. The overlay must fade out
     # into it, not stop at the grid's edge (a real slide showed a full-strength cut-off line there).
     probs = tumor_grid(cfg, [[0.9] * 3] * 3)
-    img = tumor_heatmap(probs, cfg["classes"], tile_size=20, scale=1.0, display_size=(75, 75), value_range=(0.0, 1.0))
+    img = class_heatmap(probs, cfg["classes"], "tumor", tile_size=20, scale=1.0, display_size=(75, 75), value_range=(0.0, 1.0))
     a = np.asarray(img)[..., 3].astype(int)
     peak = a.max()
     assert np.abs(np.diff(a[30, :], axis=0)).max() < peak / 3      # across the right edge of the grid
@@ -526,8 +527,46 @@ def _hue_deg(rgb):
     return colorsys.rgb_to_hsv(*(v / 255 for v in rgb))[0] * 360
 
 
-@pytest.mark.parametrize("stain", [PINK, PURPLE])
-def test_heatmap_tint_hue_is_far_from_both_stains(stain):
-    # The overlay sits on eosin pink and hematoxylin purple; a tint near either hue disappears into the tissue.
-    gap = abs(_hue_deg(HEATMAP_RGB) - _hue_deg(stain)) % 360
-    assert min(gap, 360 - gap) >= 60
+def _luminance(rgb):
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+    return 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
+
+
+def test_tumor_and_necrosis_tints_are_far_apart():
+    # Both overlays can be on at once; orange tumor and blue necrosis must not be confused where they meet.
+    for t, n in zip(HEATMAP_RAMP["tumor"], HEATMAP_RAMP["necrosis"]):
+        gap = abs(_hue_deg(t) - _hue_deg(n)) % 360
+        assert min(gap, 360 - gap) >= 90
+
+
+@pytest.mark.parametrize("cls", ["tumor", "necrosis"])
+def test_each_band_is_darker_than_the_one_below(cls):
+    ramp = HEATMAP_RAMP[cls]
+    assert len(ramp) == HEATMAP_BANDS
+    assert all(_luminance(hi) < _luminance(lo) for lo, hi in zip(ramp, ramp[1:]))
+
+
+def test_heatmap_opacity_and_color_come_in_bands_matching_the_key(cfg):
+    # Each shade on the key is one band of the color scale: a value anywhere inside a band gets that band's
+    # opacity and color.
+    probs = tumor_grid(cfg, [[0.30] * 3 + [0.45] * 3 + [0.95] * 3] * 3)
+    arr = np.asarray(class_heatmap(probs, cfg["classes"], "tumor", tile_size=20, scale=1.0, display_size=(180, 60),
+                                   value_range=(0.0, 1.0)))
+    step = HEATMAP_MAX_ALPHA * 255 / HEATMAP_BANDS
+    assert arr[30, 30, 3] == round(2 * step) and tuple(arr[30, 30, :3]) == HEATMAP_RAMP["tumor"][1]  # 2nd quarter
+    assert arr[30, 90, 3] == round(2 * step) and tuple(arr[30, 90, :3]) == HEATMAP_RAMP["tumor"][1]  # 0.45 too
+    assert arr[30, 150, 3] == round(4 * step) and tuple(arr[30, 150, :3]) == HEATMAP_RAMP["tumor"][3]  # top
+
+
+def test_necrosis_heatmap_is_clear_at_low_necrosis_and_darkest_blue_at_high(cfg):
+    # On the fixed necrosis scale, the near-zero necrosis CONCH gives most tissue stays clear.
+    classes = cfg["classes"]
+    probs = np.concatenate([grid(cfg, 1, 1, necrosis=0.00001), grid(cfg, 1, 1, necrosis=0.6)], axis=1)
+    arr = np.asarray(class_heatmap(probs, classes, "necrosis", tile_size=20, scale=1.0, display_size=(40, 20),
+                                   value_range=NECROSIS_RANGE))
+    assert arr[10, 10, 3] == 0
+    assert arr[10, 30, 3] > 0 and tuple(arr[10, 30, :3]) == HEATMAP_RAMP["necrosis"][-1]
+
+
+def test_necrosis_scale_starts_at_the_low_necrosis_cutoff(cfg):
+    assert NECROSIS_RANGE[0] == cfg["reason_cutoffs"]["low_necrosis"]

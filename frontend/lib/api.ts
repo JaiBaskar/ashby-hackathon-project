@@ -29,6 +29,9 @@ export interface Result {
   heatmap_url: string
   // Tumor probability at the overlay's clear and strongest ends; null for cases saved before it existed.
   heatmap_range?: { low: number; high: number } | null
+  // The same for necrosis; both null for cases saved before the necrosis heatmap existed.
+  necrosis_heatmap_url?: string | null
+  necrosis_heatmap_range?: { low: number; high: number } | null
   regions_url: string
   measure_url: string
   box_um: number

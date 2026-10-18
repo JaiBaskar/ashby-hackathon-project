@@ -124,20 +124,54 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
 
-test('the heatmap legend shows the tumor-probability range its colors span', () => {
-  render(<Results result={makeResult({ heatmap_range: { low: 0.72, high: 0.97 } })} />)
-  expect(screen.queryByTestId('heatmap-legend')).not.toBeInTheDocument()
+test('the tumor key shows the probability band of each shade, over this slide\'s range', () => {
+  render(<Results result={makeResult({ heatmap_range: { low: 0.5, high: 0.9 } })} />)
+  expect(screen.queryByTestId('tumor-key')).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
-  const legend = screen.getByTestId('heatmap-legend')
-  expect(legend).toHaveTextContent(/tumor probability/i)
-  expect(legend).toHaveTextContent(/72%.*97%/)
-  expect(legend).toHaveTextContent(/scaled to this slide/i)
+  const key = screen.getByTestId('tumor-key')
+  expect(key).toHaveTextContent(/tumor probability/i)
+  expect(key).toHaveTextContent(/50%.*60%.*70%.*80%.*90%\+/)
+  expect(key).toHaveTextContent(/scaled to this slide/i)
+  expect(key).toHaveTextContent(/clear below 50%/i)
+  const bands = within(key).getAllByTestId('tumor-band')
+  expect(bands).toHaveLength(4)
+  expect(bands[0]).toHaveStyle({ background: 'rgb(251 146 60 / 0.1625)' })
+  expect(bands[3]).toHaveStyle({ background: 'rgb(140 50 8 / 0.65)' })
 })
 
-test('a case saved before heatmap ranges existed still gets a plain heatmap legend', () => {
+test('the necrosis heatmap is blue, toggles with its switch or N, and has its own fixed-scale key', async () => {
+  render(<Results result={makeResult()} />)
+  expect(screen.queryByTestId('necrosis-heatmap')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('switch', { name: /necrosis heatmap/i }))
+  expect(screen.getByTestId('necrosis-heatmap')).toHaveAttribute('src', '/api/jobs/abc/necrosis_heatmap.png')
+  expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
+  const key = screen.getByTestId('necrosis-key')
+  expect(key).toHaveTextContent(/necrosis probability/i)
+  expect(key).toHaveTextContent(/5%.*15%.*25%.*35%.*45%\+/)
+  expect(key).toHaveTextContent(/same scale on every slide/i)
+  const bands = within(key).getAllByTestId('necrosis-band')
+  expect(bands[0]).toHaveStyle({ background: 'rgb(96 165 250 / 0.1625)' })
+  expect(bands[3]).toHaveStyle({ background: 'rgb(23 37 120 / 0.65)' })
+  await userEvent.keyboard('n')
+  expect(screen.queryByTestId('necrosis-heatmap')).not.toBeInTheDocument()
+})
+
+test('the keys follow the heatmap opacity slider', () => {
+  render(<Results result={makeResult()} />)
+  fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
+  fireEvent.change(screen.getByRole('slider', { name: /heatmap opacity/i }), { target: { value: '50' } })
+  expect(within(screen.getByTestId('tumor-key')).getAllByTestId('tumor-band')[3]).toHaveStyle({ background: 'rgb(140 50 8 / 0.325)' })
+})
+
+test('a case saved before the necrosis heatmap existed has no necrosis switch', () => {
+  render(<Results result={makeResult({ necrosis_heatmap_url: null, necrosis_heatmap_range: null })} />)
+  expect(screen.queryByRole('switch', { name: /necrosis heatmap/i })).not.toBeInTheDocument()
+})
+
+test('a case saved before heatmap ranges existed still gets a plain heatmap key', () => {
   render(<Results result={makeResult({ heatmap_range: null })} />)
   fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
-  expect(screen.getByTestId('heatmap-legend')).toHaveTextContent(/brighter amber = more tumor/i)
+  expect(screen.getByTestId('tumor-key')).toHaveTextContent(/darker color = more tumor/i)
 })
 
 test('shows when the case was created, and the cancer type only when one was identified', () => {
