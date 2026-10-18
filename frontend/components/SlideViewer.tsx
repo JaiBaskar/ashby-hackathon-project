@@ -35,6 +35,7 @@ interface Props {
   selected: number
   onSelect: (rank: number) => void
   showHeatmap: boolean
+  heatmapOpacity?: number
   // The user's own box (display px), the drawing mode that creates it, and its callbacks.
   free: Rect | null
   freeSelected: boolean
@@ -73,7 +74,7 @@ export default function SlideViewer(props: Props) {
   }
 
   return (
-    <div className="relative overflow-hidden rounded-lg bg-surface-sunken">
+    <div className="relative overflow-hidden rounded-sm shadow-overlay">
       {/* A per-job PNG from the API: plain <img> with its real size, so the boxes scale with it. */}
       <img
         ref={ref}
@@ -90,6 +91,7 @@ export default function SlideViewer(props: Props) {
           src={result.heatmap_url}
           alt=""
           aria-hidden
+          style={{ opacity: props.heatmapOpacity ?? 1 }}
           className="pointer-events-none absolute inset-0 h-full w-full animate-enter"
         />
       )}
@@ -102,22 +104,28 @@ export default function SlideViewer(props: Props) {
             aria-pressed={isSelected}
             aria-label={`Region ${r.rank}${r.is_best ? ', best' : ''}: ${pct(r.composition.tumor)} tumor`}
             onClick={() => onSelect(r.rank)}
-            style={{ left: `${r.x * scale}px`, top: `${r.y * scale}px`, width: `${r.w * scale}px`, height: `${r.h * scale}px` }}
-            className={`group absolute cursor-pointer rounded-sm transition-[transform] duration-fast ease-standard hover:z-10 focus-visible:z-10 ${
+            style={{
+              left: `${r.x * scale}px`,
+              top: `${r.y * scale}px`,
+              width: `${r.w * scale}px`,
+              height: `${r.h * scale}px`,
+              animationDelay: `${(r.rank - 1) * 90}ms`,
+            }}
+            className={`group absolute animate-drop cursor-pointer rounded-sm transition-[transform] duration-fast ease-standard hover:z-10 focus-visible:z-10 ${
               r.is_best ? 'region-box-best' : 'region-box'
             } ${isSelected ? 'z-10' : ''}`}
           >
             <span className="absolute -top-0.5 -left-0.5 flex -translate-x-px -translate-y-px items-center">
               <span
                 data-testid="rank"
-                className={`flex size-6 items-center justify-center rounded-sm text-xs font-bold tabular-nums transition-transform duration-fast ease-standard group-hover:scale-110 ${
-                  isSelected ? 'bg-accent text-accent-ink' : 'bg-box-outline text-box-other'
+                className={`flex size-6 items-center justify-center rounded-sm font-mono text-xs font-semibold transition-transform duration-fast ease-standard group-hover:scale-110 ${
+                  isSelected ? 'bg-box-best text-box-outline' : 'bg-box-outline text-box-other'
                 }`}
               >
                 {r.rank}
               </span>
               {r.is_best && (
-                <span className="rounded-r-sm bg-box-outline px-1.5 py-0.5 text-xs font-semibold text-box-other">Best</span>
+                <span className="rounded-r-sm bg-box-outline px-1.5 py-0.5 font-mono text-[11px] font-semibold uppercase tracking-wide text-box-best">Best</span>
               )}
             </span>
             {isSelected &&

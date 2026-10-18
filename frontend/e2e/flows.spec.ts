@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs'
-import { expect, fixture, regionBoxes, test, uploadFromHome } from './fixtures'
+import { expect, fixture, regionBoxes, resultsReady, test, uploadFromHome } from './fixtures'
 
 const pct = (fraction: number) => `${Math.round(fraction * 100)}%`
 const LABELS: Record<string, string> = {
@@ -14,7 +14,7 @@ const LABELS: Record<string, string> = {
 test('full flow: upload a slide, see 5 regions, open region 3', async ({ page, request }) => {
   const id = await uploadFromHome(page, fixture('slide'))
 
-  await expect(page.getByRole('heading', { name: 'Suggested sampling sites' })).toBeVisible({ timeout: 30_000 })
+  await resultsReady(page)
   await expect(regionBoxes(page)).toHaveCount(5)
   await expect(page.getByText('Demo model').first()).toBeVisible()
 
@@ -49,23 +49,56 @@ test('full flow: upload a slide, see 5 regions, open region 3', async ({ page, r
   expect(b.width).toBeCloseTo(region3.w * scale, 0)
 })
 
-test('history: a finished analysis gets a card that opens its results', async ({ page }) => {
+test('worklist: a finished case gets a row with its numbers, and the local label follows it', async ({ page }) => {
   const id = await uploadFromHome(page, fixture('slide'))
-  await expect(page.getByRole('heading', { name: 'Suggested sampling sites' })).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByText('Cancer type')).toBeVisible()
+  await resultsReady(page)
+  await page.getByRole('textbox', { name: 'Case label' }).fill('E2E-A1')
 
-  await page.getByRole('navigation').getByRole('link', { name: 'History' }).click()
-  await expect(page).toHaveURL(/\/history$/)
-  await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
-  const card = page.getByRole('link', { name: /Analysis/ }).first() // newest first
-  await expect(card).toHaveAttribute('href', `/jobs/${id}`)
-  await expect(card).toContainText('Not identified yet')
-  await expect(card).toContainText('Done')
-  await expect(card.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/)
+  await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'Worklist' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  await expect(page.getByRole('heading', { name: 'Worklist' })).toBeVisible()
+  const row = page.getByRole('listitem').filter({ has: page.getByRole('link', { name: 'Open case E2E-A1' }) })
+  await expect(row.getByRole('link')).toHaveAttribute('href', `/jobs/${id}`)
+  await expect(row).toContainText('tumor, best region')
+  await expect(row.locator('time')).toHaveAttribute('datetime', /^\d{4}-\d{2}-\d{2}T/)
+  await expect(row.getByTestId('thumb').locator('img')).toHaveAttribute('src', `/api/jobs/${id}/display.png`)
 
-  await card.click()
+  await row.getByRole('link').click()
   await expect(page).toHaveURL(new RegExp(`/jobs/${id}$`))
   await expect(regionBoxes(page)).toHaveCount(5)
+})
+
+test('a batch: two slides become two cases; J moves to the next one; the sampling sheet opens', async ({ page }) => {
+  // Other tests' cases share this worklist, so these two are told apart by their (local) labels.
+  await page.goto('/upload')
+  await page.locator('input[type="file"]').setInputFiles([fixture('slide'), fixture('slide')])
+  const labels = page.getByRole('textbox', { name: /^Case label for/ })
+  await labels.nth(0).fill('BATCH-1')
+  await labels.nth(1).fill('BATCH-2')
+  await page.getByRole('button', { name: 'Analyze 2 slides' }).click()
+  await expect(page).toHaveURL(/\/$/)
+  const one = page.getByRole('link', { name: 'Open case BATCH-1' })
+  const two = page.getByRole('link', { name: 'Open case BATCH-2' })
+  await expect(one).toBeVisible({ timeout: 10_000 })
+  await expect(two).toBeVisible()
+  for (const link of [one, two]) {
+    await expect(page.getByRole('listitem').filter({ has: link })).toContainText('tumor, best region', { timeout: 30_000 })
+  }
+
+  // Newest first: BATCH-2 is listed above BATCH-1, so "next" from BATCH-2 is BATCH-1.
+  const firstHref = (await one.getAttribute('href'))!
+  await two.click()
+  await resultsReady(page)
+  await page.locator('body').click({ position: { x: 5, y: 5 } })
+  await page.keyboard.press('j')
+  await expect(page).toHaveURL(new RegExp(`${firstHref}$`))
+
+  await resultsReady(page)
+  await expect(page.getByRole('textbox', { name: 'Case label' })).toHaveValue('BATCH-1')
+  await page.getByRole('link', { name: 'Sampling sheet' }).click()
+  await expect(page.getByRole('heading', { name: 'Sampling sheet' })).toBeVisible()
+  await expect(page.getByTestId('sheet-label')).toHaveText('BATCH-1')
+  await expect(page.getByTestId('sheet-instruction')).toContainText('Macrodissect region 1')
 })
 
 test('box size: 1 mm re-ranks through the API, and 0.5 mm brings the original boxes back', async ({ page, request }) => {
@@ -75,7 +108,7 @@ test('box size: 1 mm re-ranks through the API, and 0.5 mm brings the original bo
   const big = await (await request.get(`/api/jobs/${id}/regions?box_um=1024`)).json()
   expect(big.regions.length).toBeGreaterThan(0)
 
-  const sizes = page.getByRole('radiogroup', { name: 'Box size' })
+  const sizes = page.getByRole('radiogroup', { name: /box size/i })
   await sizes.getByText('1 mm', { exact: true }).click()
   await expect(regionBoxes(page)).toHaveCount(big.regions.length)
   await expect(page.getByRole('region', { name: 'Region details' }).getByTestId('size')).toContainText('1024 µm')
@@ -176,7 +209,7 @@ test('error flow: a blank image ends in the error state, and "Try another image"
   await expect(page.getByText('No tissue found in this image.')).toHaveAttribute('role', 'alert', { timeout: 30_000 })
   await page.getByRole('link', { name: 'Try another image' }).click()
   await expect(page).toHaveURL(/\/upload$/)
-  await expect(page.getByRole('heading', { name: 'Analyze a slide' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'New case' })).toBeVisible()
 })
 
 test('an upload over 10 MB reaches FastAPI through the Next.js rewrite', async ({ request }) => {
@@ -198,15 +231,18 @@ test.describe('at 375 px', () => {
 
     await page.goto('/')
     await noHorizontalScroll()
-    await uploadFromHome(page, fixture('slide'))
+    const id = await uploadFromHome(page, fixture('slide'))
     await expect(regionBoxes(page)).toHaveCount(5, { timeout: 30_000 })
     await noHorizontalScroll()
-    await page.getByRole('link', { name: 'New analysis' }).click()
+    await page.getByRole('navigation', { name: 'Main' }).getByRole('link', { name: 'New case' }).click()
     await expect(page).toHaveURL(/\/upload$/)
     await page.locator('input[type="file"]').setInputFiles(fixture('slide'))
     await noHorizontalScroll()
-    await page.goto('/history')
-    await expect(page.getByRole('heading', { name: 'History' })).toBeVisible()
+    await page.goto('/')
+    await expect(page.getByRole('heading', { name: 'Worklist' })).toBeVisible()
+    await noHorizontalScroll()
+    await page.goto(`/jobs/${id}/sheet`)
+    await expect(page.getByRole('heading', { name: 'Sampling sheet' })).toBeVisible()
     await noHorizontalScroll()
   })
 })

@@ -109,10 +109,10 @@ test('the Demo model badge shows for the fake model only', () => {
   expect(screen.queryByText('Demo model')).not.toBeInTheDocument()
 })
 
-test('carries the research-use notice and a "New analysis" button', () => {
+test('carries the research-use notice and a way back to the worklist', () => {
   render(<Results result={makeResult()} />)
   expect(screen.getByText(/research prototype.*not for clinical use/i)).toBeInTheDocument()
-  expect(screen.getByRole('link', { name: 'New analysis' })).toHaveAttribute('href', '/upload')
+  expect(screen.getByRole('link', { name: /worklist/i })).toHaveAttribute('href', '/')
 })
 
 test('the heatmap toggle shows and hides the tumor overlay', () => {
@@ -124,10 +124,13 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
 
-test('shows when the request was created and the cancer type, when given', () => {
-  render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
+test('shows when the case was created, and the cancer type only when one was identified', () => {
+  const { unmount } = render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: null }} timeZone="UTC" />)
   expect(screen.getByText('Oct 17, 2026, 2:05 PM').tagName).toBe('TIME')
-  expect(screen.getByText('Cancer type').nextElementSibling).toHaveTextContent('Not identified yet')
+  expect(screen.queryByText(/not identified/i)).not.toBeInTheDocument()
+  unmount()
+  render(<Results result={makeResult()} meta={{ created_at: '2026-10-17T14:05:00+00:00', cancer_type: 'Adenocarcinoma' }} timeZone="UTC" />)
+  expect(screen.getByText('Adenocarcinoma')).toBeInTheDocument()
 })
 
 describe('box size', () => {

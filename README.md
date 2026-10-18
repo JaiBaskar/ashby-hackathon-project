@@ -1,12 +1,24 @@
 # ashby-puppymoggers
 
-A web app for the Ashby Hackathon (UIUC). Upload a photo or scan of an H&E biopsy slide, and it suggests the five best regions to sample. The backend tiles the image, scores each tile with the CONCH pathology model (zero-shot), and ranks regions by tumor content, necrosis and evenness. Each suggestion comes with its estimated tissue composition and rule-based reasons. The results screen lets you switch the box size (0.5, 1 or 2 mm, to match the punch or core you'll cut); this re-ranks the stored tile scores without running the model again. You can also draw your own box of any shape, or adjust a suggested one: drag to move it, drag a handle to resize it (arrow keys work too), and its composition and score are measured from the same tile scores. **Research prototype, not for clinical use.**
+A web app for the Ashby Hackathon (UIUC) that helps a pathologist decide where to cut. Upload one H&E slide or a batch (scans or photos). The backend tiles each image, scores every tile with the CONCH pathology model (zero-shot), and ranks regions by tumor content, necrosis and evenness. **Research prototype, not for clinical use.**
+
+What a pathologist gets:
+
+- **Worklist:** every case with a slide thumbnail, best-region tumor %, a "ready for sequencing" verdict, live progress for running cases, search, filters and a reviewed tick.
+- **Case workspace:**
+  - the slide on a dark stage, with zoom and a tumor heatmap at adjustable opacity;
+  - the five suggested regions as numbered boxes and in a sortable table;
+  - each region checked against the lab's minimum tumor fraction for sequencing (default 20%).
+- **Boxes you can reshape:** grab any box by a corner or edge, or draw your own; the numbers are re-measured while you drag, from the stored tile scores. Suggestions can also be re-ranked at 0.5, 1 or 2 mm to match a punch.
+- **Sampling sheet:** a print-ready page for the histotech, with the instruction, the slide with numbered boxes and a 1 mm scale bar, the region table, notes and sign-off lines. **Copy summary** puts the same numbers on the clipboard for the report.
+- **Case labels, notes and reviewed ticks stay in your browser**, never on the server or in the shared history, because they can identify a patient.
+- **Keyboard first:** 1–9 regions, H heatmap, D draw, +/−/0 zoom, J/K next/previous case, P sheet, ? for the list.
 
 ## How it fits together
 
 - `frontend/`: the Next.js app (App Router, TypeScript, Tailwind CSS) that people use. It holds no ML.
 - `backend/`: a FastAPI service with all the ML logic in Python: reading slides (OpenSlide, Pillow), tiling, CONCH scoring and region ranking.
-- Request history: every analysis is recorded in Postgres (a Tiger Cloud service) when `DATABASE_URL` is set in `.env`, else in memory. Only job metadata and the result numbers are stored, never the image or its filename; images stay in `data/jobs/` on this machine. `/history` lists the requests as cards linking to their results.
+- Request history: every analysis is recorded in Postgres (a Tiger Cloud service) when `DATABASE_URL` is set in `.env`, else in memory. Only job metadata and the result numbers are stored, never the image or its filename; images stay in `data/jobs/` on this machine. The worklist (`/`) reads them; `/history` redirects there.
 - The browser only talks to Next.js. Next.js forwards every `/api/*` request to FastAPI (`API_URL`, default `http://localhost:8000`), so both run as one site with no CORS setup.
 
 Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`, `.claude/CLAUDE.md`, `.claude/rules.md`.

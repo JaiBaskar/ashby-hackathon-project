@@ -1,27 +1,27 @@
 import type { Metadata } from 'next'
 import localFont from 'next/font/local'
-import Link from 'next/link'
+import SiteHeader from '@/components/SiteHeader'
 import './globals.css'
 
 // Fonts ship with the @fontsource packages, so builds and tests need no internet (DESIGN.md, "Type").
-const newsreader = localFont({
+const instrument = localFont({
   src: [
-    { path: '../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-normal.woff2', style: 'normal' },
-    { path: '../node_modules/@fontsource-variable/newsreader/files/newsreader-latin-wght-italic.woff2', style: 'italic' },
+    { path: '../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-normal.woff2', style: 'normal' },
+    { path: '../node_modules/@fontsource-variable/instrument-sans/files/instrument-sans-latin-wght-italic.woff2', style: 'italic' },
   ],
-  weight: '200 800',
+  weight: '400 700',
   display: 'swap',
-  variable: '--font-newsreader',
+  variable: '--font-instrument',
 })
 
-const plex = localFont({
+const plexMono = localFont({
   src: [
-    { path: '../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-normal.woff2', style: 'normal' },
-    { path: '../node_modules/@fontsource-variable/ibm-plex-sans/files/ibm-plex-sans-latin-wght-italic.woff2', style: 'italic' },
+    { path: '../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-400-normal.woff2', weight: '400' },
+    { path: '../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-500-normal.woff2', weight: '500' },
+    { path: '../node_modules/@fontsource/ibm-plex-mono/files/ibm-plex-mono-latin-600-normal.woff2', weight: '600' },
   ],
-  weight: '100 700',
   display: 'swap',
-  variable: '--font-plex',
+  variable: '--font-plex-mono',
 })
 
 export const metadata: Metadata = {
@@ -31,21 +31,9 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html lang="en" className={`${newsreader.variable} ${plex.variable}`}>
+    <html lang="en" className={`${instrument.variable} ${plexMono.variable}`}>
       <body className="min-h-dvh">
-        <header className="border-b border-line">
-          <div className="mx-auto flex h-14 max-w-6xl items-center px-4 sm:px-6">
-            <Link href="/" className="flex items-center gap-2.5 rounded-sm font-display text-lg font-medium text-ink">
-              <span aria-hidden className="size-3 rounded-full border-2 border-accent-strong" />
-              Sampling-site finder
-            </Link>
-            <nav className="ml-auto">
-              <Link href="/history" className="inline-flex min-h-11 items-center rounded-sm px-2 font-medium text-ink-muted hover:text-ink">
-                History
-              </Link>
-            </nav>
-          </div>
-        </header>
+        <SiteHeader />
         {children}
       </body>
     </html>

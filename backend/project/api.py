@@ -117,11 +117,19 @@ class JobStatus(BaseModel):
 
 
 class JobSummary(BaseModel):
+    """One row of the worklist. The numbers come from the stored Result JSON; nothing new is stored."""
     id: str
     created_at: datetime
     status: Literal["running", "done", "error"]
     model: str
     cancer_type: Optional[str]
+    organ: Optional[str] = None
+    best_tumor: Optional[float] = None      # region 1's tumor fraction; None while running, failed or with no regions
+    best_necrosis: Optional[float] = None
+    n_regions: Optional[int] = None
+    progress: float = 0.0
+    best_box: Optional[list[int]] = None    # region 1 as [x, y, w, h] in display px, for the worklist thumbnail
+    image_size: Optional[list[int]] = None  # display image [width, height]
 
 
 class JobList(BaseModel):
@@ -337,12 +345,23 @@ def create_app(cfg=None, store=None):
                          daemon=True).start()
         return JobCreated(job_id=job_id)
 
+    def summarize(r):
+        result = r.result or {}
+        regions = result.get("regions") or []
+        best = regions[0]["composition"] if regions else {}
+        live = app.state.jobs.get(r.id)
+        progress = 1.0 if r.status == "done" else live.status_body().progress if live else 0.0
+        return JobSummary(
+            id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type,
+            organ=result.get("organ"), best_tumor=best.get("tumor"), best_necrosis=best.get("necrosis"),
+            n_regions=len(regions) if r.result else None, progress=progress,
+            best_box=[regions[0][k] for k in ("x", "y", "w", "h")] if regions else None,
+            image_size=[result["image"]["width"], result["image"]["height"]] if result.get("image") else None,
+        )
+
     @app.get("/api/jobs", response_model=JobList)
     def list_jobs():
-        return JobList(store=store.name, jobs=[
-            JobSummary(id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type)
-            for r in store.list()
-        ])
+        return JobList(store=store.name, jobs=[summarize(r) for r in store.list()])
 
     @app.get("/api/jobs/{job_id}", response_model=JobStatus)
     def job_status(request: Request, job_id: str):
