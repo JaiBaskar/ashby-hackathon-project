@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { errorMessage, type JobStatus } from '@/lib/api'
 import Analyzing from './Analyzing'
+import CaseNav from './CaseNav'
 import Results from './Results'
 
 const POLL_MS = 1000
@@ -50,6 +51,6 @@ export default function JobView({ id, initial }: { id: string; initial: JobStatu
     }
   }, [id, finished])
 
-  if (status.status === 'done' && status.result) return <Results id={id} key={status.result.regions_url} result={status.result} meta={status} />
+  if (status.status === 'done' && status.result) return <Results id={id} key={status.result.regions_url} result={status.result} meta={status} nav={<CaseNav id={id} />} />
   return <Analyzing status={status} />
 }

@@ -240,6 +240,8 @@ def test_jobs_list_summarizes_each_case_for_the_worklist(cfg):
         assert j["best_necrosis"] == pytest.approx(best["composition"]["necrosis"])
         assert j["n_regions"] == len(result["regions"])
         assert j["progress"] == 1.0
+        assert j["best_box"] == [best["x"], best["y"], best["w"], best["h"]]  # display px, for the thumbnail
+        assert j["image_size"] == [result["image"]["width"], result["image"]["height"]]
 
 
 def test_jobs_list_shows_progress_while_running_and_no_numbers_without_regions(cfg):
@@ -252,6 +254,7 @@ def test_jobs_list_shows_progress_while_running_and_no_numbers_without_regions(c
     j = next(j for j in client.get("/api/jobs").json()["jobs"] if j["id"] == "a" * 32)
     assert (j["status"], j["progress"]) == ("running", 0.4)
     assert (j["best_tumor"], j["best_necrosis"], j["n_regions"]) == (None, None, None)
+    assert (j["best_box"], j["image_size"]) == (None, None)
 
     blank = upload(client, png_bytes(solid(GLASS, size=(1024, 1024)))).json()["job_id"]
     poll(client, blank)

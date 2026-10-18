@@ -128,6 +128,8 @@ class JobSummary(BaseModel):
     best_necrosis: Optional[float] = None
     n_regions: Optional[int] = None
     progress: float = 0.0
+    best_box: Optional[list[int]] = None    # region 1 as [x, y, w, h] in display px, for the worklist thumbnail
+    image_size: Optional[list[int]] = None  # display image [width, height]
 
 
 class JobList(BaseModel):
@@ -353,6 +355,8 @@ def create_app(cfg=None, store=None):
             id=r.id, created_at=r.created_at, status=r.status, model=r.model, cancer_type=r.cancer_type,
             organ=result.get("organ"), best_tumor=best.get("tumor"), best_necrosis=best.get("necrosis"),
             n_regions=len(regions) if r.result else None, progress=progress,
+            best_box=[regions[0][k] for k in ("x", "y", "w", "h")] if regions else None,
+            image_size=[result["image"]["width"], result["image"]["height"]] if result.get("image") else None,
         )
 
     @app.get("/api/jobs", response_model=JobList)

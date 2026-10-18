@@ -16,11 +16,16 @@ afterEach(() => {
 })
 
 const tick = () => act(() => vi.advanceTimersByTimeAsync(1000))
+// Requests for this job's status. The results screen also reads the case list once, for previous / next.
+const jobPolls = () => fetchMock.mock.calls.filter(([url]) => url === '/api/jobs/abc')
+const caseList = () => jsonResponse({ store: 'memory', jobs: [] })
 
 test('polls a running job until it is done, then shows the results', async () => {
-  fetchMock
-    .mockResolvedValueOnce(jsonResponse(makeStatus({ step: 'analyzing', progress: 0.5 })))
-    .mockResolvedValueOnce(jsonResponse(makeStatus({ status: 'done', step: 'ranking', progress: 1, result: makeResult() })))
+  const answers = [
+    jsonResponse(makeStatus({ step: 'analyzing', progress: 0.5 })),
+    jsonResponse(makeStatus({ status: 'done', step: 'ranking', progress: 1, result: makeResult() })),
+  ]
+  fetchMock.mockImplementation(async (url: string) => (url === '/api/jobs' ? caseList() : answers.shift()))
   render(<JobView id="abc" initial={makeStatus()} />)
   expect(screen.getByText('Tiling').closest('li')).toHaveAttribute('aria-current', 'step')
 
@@ -32,14 +37,15 @@ test('polls a running job until it is done, then shows the results', async () =>
   expect(screen.getAllByRole('button', { name: /^Region \d/ })).toHaveLength(5)
 
   await tick()
-  expect(fetchMock).toHaveBeenCalledTimes(2) // stops polling once done
+  expect(jobPolls()).toHaveLength(2) // stops polling once done
 })
 
 test('a finished job (e.g. after a reload) shows results without polling', async () => {
+  fetchMock.mockImplementation(async () => caseList())
   render(<JobView id="abc" initial={makeStatus({ status: 'done', progress: 1, result: makeResult() })} />)
   expect(screen.getAllByRole('button', { name: /^Region \d/ })).toHaveLength(5)
   await tick()
-  expect(fetchMock).not.toHaveBeenCalled()
+  expect(jobPolls()).toHaveLength(0)
 })
 
 test('a job that fails shows the error state', async () => {

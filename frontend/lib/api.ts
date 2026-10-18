@@ -78,6 +78,13 @@ export interface JobSummary {
   status: 'running' | 'done' | 'error'
   model: string
   cancer_type: string | null
+  organ?: string | null
+  best_tumor?: number | null // region 1's tumor fraction
+  best_necrosis?: number | null
+  n_regions?: number | null
+  progress?: number
+  best_box?: [number, number, number, number] | null // region 1, display px
+  image_size?: [number, number] | null
 }
 
 export interface JobList {
