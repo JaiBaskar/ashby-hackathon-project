@@ -8,7 +8,8 @@ What a pathologist gets:
 - **Case workspace:**
   - the slide on a dark stage, with zoom and a tumor heatmap at adjustable opacity;
   - the five suggested regions as numbered boxes and in a sortable table;
-  - each region checked against the lab's minimum tumor fraction for sequencing (default 20%).
+  - each region checked against the lab's minimum tumor fraction for sequencing (default 20%);
+  - if no region on the slide reaches the 20% minimum (`min_tumor_pct` in `config.yaml`), no regions are suggested and the case says so, with the best region's tumor %.
 - **Boxes you can reshape:** grab any box by a corner or edge, or draw your own; the numbers are re-measured while you drag, from the stored tile scores. Suggestions can also be re-ranked at 0.5, 1 or 2 mm to match a punch.
 - **Sampling sheet:** a print-ready page for the histotech, with the instruction, the slide with numbered boxes and a 1 mm scale bar, the region table, notes and sign-off lines. **Copy summary** puts the same numbers on the clipboard for the report.
 - **Case labels, notes and reviewed ticks stay in your browser**, never on the server or in the shared history, because they can identify a patient.
@@ -33,7 +34,7 @@ Build plan: `.claude/implementation-steps.md`. Agent rules: `.claude/AGENTS.md`,
 | `make test` | All fast tests: backend, Vitest and Playwright end-to-end. No GPU, internet or token needed (uses the demo model) |
 | `make test-e2e` | Only the Playwright flows; also saves screenshots to `reports/screenshots/` |
 | `make test-db` | Postgres store tests in a throwaway schema; needs `TEST_DATABASE_URL` |
-| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`). On Delta: `scripts/test_real.sbatch` |
+| `make test-real` | Tests that need real CONCH weights and `HF_TOKEN` (see `.env.example`), including the false-positive check: no region may be suggested on slides built only from non-tumor tiles (`results/false_positives_*.json`). On Delta: `scripts/test_real.sbatch` |
 
 All settings (model, scale, thresholds, paths, seed) are in `config.yaml`.
 

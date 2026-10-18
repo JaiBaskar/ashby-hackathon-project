@@ -3,6 +3,7 @@
 Score grids are indexed [row, col] = [y, x] (AGENTS.md §4); tiles that weren't analyzed are NaN.
 """
 
+import math
 import re
 
 import numpy as np
@@ -19,6 +20,11 @@ def pct(fraction):
 
 def parse_pct(text):
     return [int(m) for m in re.findall(r"(\d+)%", text)]
+
+
+def meets_minimum(fraction, min_pct):
+    """Compared as the screen shows it (rounded half up, like the frontend's meets()), so "20%" is never below 20%."""
+    return math.floor(fraction * 100 + 0.5) >= min_pct
 
 
 def tile_um(cfg):
@@ -57,7 +63,7 @@ def slide_composition(probs, classes):
     return {c: float(v) for c, v in zip(classes, mean)}
 
 
-def _candidates(probs, tissue, cfg):
+def eligible_windows(probs, tissue, cfg):
     """Every eligible N×N window, with its numbers."""
     n = cfg["region_tiles"]
     classes = cfg["classes"]
@@ -135,18 +141,27 @@ def _note(found, n_windows, cfg):
             f"on tissue, so {found} {are} shown instead of {top_k}.")
 
 
+def _below_minimum_note(top_tumor, cfg):
+    n = cfg["region_tiles"]
+    return (f"No {n}×{n}-tile region reaches the {cfg['min_tumor_pct']}% tumor minimum for sequencing "
+            f"(the most tumor-rich has {pct(top_tumor)}), so no regions are suggested.")
+
+
 def rank_regions(probs, tissue, cfg, tile_size, scale):
     """Top non-overlapping eligible regions, best first, and a note when fewer than top_k exist.
 
+    When no eligible window reaches min_tumor_pct, there are no regions and the note says so.
     probs: [rows, cols, n_classes] (NaN where a tile wasn't analyzed); tissue: [rows, cols] tissue fractions.
     tile_size is the tile edge in original pixels; scale is original pixels per display pixel.
     """
     n = cfg["region_tiles"]
     rows, cols = tissue.shape
     n_windows = max(0, rows - n + 1) * max(0, cols - n + 1)
-    candidates = _candidates(probs, tissue, cfg)
-    picked = _pick(candidates, n, cfg["top_k"])
+    candidates = eligible_windows(probs, tissue, cfg)
     top_tumor = max((d["composition"]["tumor"] for d in candidates), default=0.0)
+    if candidates and not meets_minimum(top_tumor, cfg["min_tumor_pct"]):
+        return [], _below_minimum_note(top_tumor, cfg)
+    picked = _pick(candidates, n, cfg["top_k"])
 
     px = tile_size / scale
     for i, region in enumerate(picked):

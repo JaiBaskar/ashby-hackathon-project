@@ -123,6 +123,9 @@ region_tiles: 4              # a region is region_tiles x region_tiles tiles (th
 # and the default box must be one of them. Changing size re-ranks the stored tile scores; CONCH isn't re-run.
 box_sizes_um: [512, 1024, 2048]
 min_coverage: 0.9
+# Lab minimum tumor % for sequencing. If no eligible region reaches it, no regions are suggested and the note
+# says so. Same default as the results screen's threshold (frontend DEFAULT_THRESHOLD).
+min_tumor_pct: 20
 top_k: 5
 weights:
   necrosis: 1.0
