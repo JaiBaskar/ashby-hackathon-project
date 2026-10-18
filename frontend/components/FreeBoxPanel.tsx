@@ -37,7 +37,7 @@ export default function FreeBoxPanel({
           </p>
         )}
       </div>
-      <p className="mt-1 text-sm text-ink-muted">Drag it to move, drag a handle to resize. Arrow keys move it; Shift + arrow keys resize it.</p>
+      <p className="mt-1 text-sm text-ink-muted">Drag it to move, drag a handle to resize.</p>
 
       {error ? (
         <p role="alert" className="mt-6 text-danger">

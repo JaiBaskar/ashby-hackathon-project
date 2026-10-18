@@ -13,7 +13,6 @@ export interface Rect {
 export type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 export const HANDLES: Exclude<Handle, 'move'>[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 const MIN_PX = 2 // display px: a side never collapses to nothing while resizing
-export const KEY_STEP = 16 // display px per arrow key press
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi)
 
@@ -37,14 +36,6 @@ export function dragRect(start: Rect, handle: Handle, dx: number, dy: number, wi
   if (handle.includes('s')) b += dy
   const rect = fromCorners(l, t, r, b, width, height)
   return { ...rect, w: Math.max(rect.w, MIN_PX), h: Math.max(rect.h, MIN_PX) }
-}
-
-// Arrow keys move the box; with Shift they grow or shrink it from the right and bottom edges.
-export function keyRect(rect: Rect, key: string, shift: boolean, width: number, height: number): Rect | null {
-  const d = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[key]
-  if (!d) return null
-  const [dx, dy] = [d[0] * KEY_STEP, d[1] * KEY_STEP]
-  return dragRect(rect, shift ? 'se' : 'move', dx, dy, width, height)
 }
 
 // Pointer drags: follow the pointer on window (so a fast drag can't escape the element), report every
@@ -94,7 +85,7 @@ interface Props {
   onChange: (rect: Rect, when: 'drag' | 'now' | 'soon') => void
 }
 
-// The user's own box: drag inside to move, drag a handle to resize, arrow keys for keyboard users.
+// The user's own box: drag inside to move, drag a handle to resize.
 const FreeBox = forwardRef<HTMLDivElement, Props>(function FreeBox({ rect, scale, bounds, selected, label, onSelect, onChange }, ref) {
   const start = useRef(rect)
   const drag = useDrag<Handle>(scale, (handle, dx, dy, done) =>
@@ -115,13 +106,6 @@ const FreeBox = forwardRef<HTMLDivElement, Props>(function FreeBox({ rect, scale
       tabIndex={0}
       onPointerDown={begin('move')}
       onClick={onSelect}
-      onKeyDown={(e) => {
-        const next = keyRect(rect, e.key, e.shiftKey, bounds.width, bounds.height)
-        if (!next) return
-        e.preventDefault()
-        onSelect()
-        onChange(next, 'soon')
-      }}
       style={{ left: `${rect.x * scale}px`, top: `${rect.y * scale}px`, width: `${rect.w * scale}px`, height: `${rect.h * scale}px` }}
       className={`free-box absolute cursor-move touch-none rounded-sm ${selected ? 'z-20' : 'z-10'}`}
     >

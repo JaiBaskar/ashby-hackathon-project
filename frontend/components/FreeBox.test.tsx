@@ -102,24 +102,6 @@ test('drag the box to move it; it stays inside the image', async () => {
   expect(freeBox()).toHaveStyle({ left: '824px', top: '618px', width: '200px', height: '150px' })
 })
 
-test('arrow keys move the box and Shift + arrow keys resize it', async () => {
-  render(<Results result={makeResult()} />)
-  await draw([100, 100], [300, 250])
-  const calls = fetchMock.mock.calls.length
-  vi.useFakeTimers({ shouldAdvanceTime: true })
-  freeBox().focus()
-  fireEvent.keyDown(freeBox(), { key: 'ArrowRight' })
-  expect(freeBox()).toHaveStyle({ left: '108px', top: '100px', width: '200px', height: '150px' })
-  fireEvent.keyDown(freeBox(), { key: 'ArrowDown', shiftKey: true })
-  expect(freeBox()).toHaveStyle({ left: '108px', top: '100px', width: '200px', height: '158px' })
-  fireEvent.keyDown(freeBox(), { key: 'ArrowLeft', shiftKey: true })
-  expect(freeBox()).toHaveStyle({ width: '192px' })
-  expect(fetchMock.mock.calls.length).toBe(calls) // waits until the keys stop
-  await act(() => vi.advanceTimersByTimeAsync(400))
-  expect(fetchMock.mock.calls.length).toBe(calls + 1)
-  expect(Object.fromEntries(measured())).toEqual({ x: '216', y: '200', w: '384', h: '316' })
-})
-
 test('"Adjust this box" turns a suggested region into a box you can reshape', async () => {
   const result = makeResult()
   render(<Results result={result} />)
