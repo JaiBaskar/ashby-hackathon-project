@@ -2,7 +2,7 @@ import { notFound } from 'next/navigation'
 import JobView from '@/components/JobView'
 import type { JobStatus } from '@/lib/api'
 
-export const metadata = { title: 'Analysis · Sampling-site finder' }
+export const metadata = { title: 'Analysis · Hotspot' }
 
 // Server side, so a results URL survives a reload: fetch the job's current state from FastAPI directly.
 const apiUrl = process.env.API_URL ?? 'http://localhost:8000'

@@ -19,7 +19,7 @@ export default function SiteHeader() {
         <Link href="/" className="flex items-center gap-3 rounded-sm">
           <Logo className="h-4 w-10" />
           <span className="sr-only sm:not-sr-only sm:text-base sm:font-semibold sm:tracking-tight sm:whitespace-nowrap">
-            Sampling-site finder
+            Hotspot
             <span className="ml-2 hidden font-mono text-xs font-normal text-stage-muted sm:inline">research</span>
           </span>
         </Link>

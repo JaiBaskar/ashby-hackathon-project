@@ -25,7 +25,7 @@ const plexMono = localFont({
 })
 
 export const metadata: Metadata = {
-  title: 'Sampling-site finder',
+  title: 'Hotspot',
   description: 'Suggests the best regions to sample on an H&E biopsy slide. Research prototype.',
 }
 

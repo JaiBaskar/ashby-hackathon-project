@@ -290,7 +290,7 @@ def create_app(cfg=None, store=None):
     uploads.mkdir(parents=True, exist_ok=True)
     jobs_dir = repo_path(cfg["paths"]["jobs"])
 
-    app = FastAPI(title="Biopsy sampling-site finder")
+    app = FastAPI(title="Hotspot")
     app.state.jobs = {}
     app.state.store = store
     not_found = "No analysis with this id. It may have been run on another machine or before history was kept."

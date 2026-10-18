@@ -1,6 +1,6 @@
 import UploadForm from '@/components/UploadForm'
 
-export const metadata = { title: 'New case · Sampling-site finder' }
+export const metadata = { title: 'New case · Hotspot' }
 
 export default function UploadPage() {
   return (

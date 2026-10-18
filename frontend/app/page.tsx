@@ -2,7 +2,7 @@ import Worklist from '@/components/Worklist'
 import { ResearchNotice } from '@/components/ui'
 import type { JobList } from '@/lib/api'
 
-export const metadata = { title: 'Worklist · Sampling-site finder' }
+export const metadata = { title: 'Worklist · Hotspot' }
 export const dynamic = 'force-dynamic'
 
 // Server side, like the job page: read the case list from FastAPI directly.

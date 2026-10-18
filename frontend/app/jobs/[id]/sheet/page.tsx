@@ -4,7 +4,7 @@ import SamplingSheet from '@/components/SamplingSheet'
 import { button } from '@/components/ui'
 import type { JobStatus } from '@/lib/api'
 
-export const metadata = { title: 'Sampling sheet · Sampling-site finder' }
+export const metadata = { title: 'Sampling sheet · Hotspot' }
 
 const apiUrl = process.env.API_URL ?? 'http://localhost:8000'
 

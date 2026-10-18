@@ -1,6 +1,6 @@
 # Design system
 
-How the sampling-site finder looks, and why. Every value lives in `app/globals.css` (`@theme static`, `@theme inline` and the dark-mode block); this file explains them. Components use the tokens through Tailwind utilities (`bg-surface`, `text-ink-muted`, `rounded-md`, `duration-fast`) and never hard-code a color. `app/design-tokens.test.ts` enforces the contrast rules below and fails on any hex value in `app/` or `components/` outside `globals.css`.
+How Hotspot looks, and why. Every value lives in `app/globals.css` (`@theme static`, `@theme inline` and the dark-mode block); this file explains them. Components use the tokens through Tailwind utilities (`bg-surface`, `text-ink-muted`, `rounded-md`, `duration-fast`) and never hard-code a color. `app/design-tokens.test.ts` enforces the contrast rules below and fails on any hex value in `app/` or `components/` outside `globals.css`.
 
 ## Direction: the bench
 
