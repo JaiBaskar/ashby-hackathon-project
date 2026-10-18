@@ -28,7 +28,7 @@ from project import gdc
 from project.config import load_config, repo_path
 from project.ingest import open_slide
 from project.labels import assign_splits, build_labels, check_labels, read_absolute, select_slides
-from project.metrics import bootstrap_mae_diff, catch_rate, mae, pearson_r, verdict
+from project.metrics import bootstrap_mae_diff, catch_rate, mae, pearson_r, verdict, within_between_r
 from project.model import load_backend
 from project.purity_models import METHODS, cross_validate, fit_predict, slide_features
 from project.tiling import build_grid, read_tiles
@@ -141,7 +141,8 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
         "n_test_slides_without_app_score": int(len(test_all) - len(test)),
         "catch_cutoff": cutoff,
         "mapping": {"slope": slope, "intercept": intercept, "fit_on": "train", "n_slides": int(len(train))},
-        "methods": {m: method_metrics(truth, p, cutoff) for m, p in preds.items()},
+        "methods": {m: {**method_metrics(truth, p, cutoff), **within_between_r(truth, p, test["hospital"].to_numpy())}
+                    for m, p in preds.items()},
         "bootstrap": {},
         "seed": seed,
     }
@@ -192,11 +193,13 @@ def explore(labels, features, split, cutoff, seed):
     if df["hospital"].nunique() < 3:
         raise ValueError(f"need ≥ 3 {split} hospitals with features, have {df['hospital'].nunique()}")
     truth = df["truth_pct"].to_numpy(float)
+    hospitals = df["hospital"].to_numpy()
 
     def metrics(pred):
         out = {"mae": mae(truth, pred), "pearson_r": pearson_r(truth, pred)}
         if (truth < cutoff).any():
             out["catch_rate"] = catch_rate(truth, pred, cutoff)
+        out.update(within_between_r(truth, pred, hospitals))  # reads the slide, or only the hospital?
         return out
 
     out = {"split": split, "n_slides": int(len(df)), "n_hospitals": int(df["hospital"].nunique()),

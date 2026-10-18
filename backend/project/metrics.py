@@ -56,3 +56,27 @@ def verdict(ci_low, ci_high):
     if ci_high < 0:
         return "worse"
     return "comparable"
+
+
+def within_between_r(truth, pred, hospitals):
+    """Split a correlation into within-hospital and between-hospital parts.
+
+    Within: both numbers centred on their hospital's mean (hospitals with ≥ 2 slides), then correlated: does the
+    method rank slides correctly inside a hospital? Between: correlation of the hospital means. A method that only
+    recognizes hospitals (stain, scanner) shows between-hospital correlation but no within-hospital correlation.
+    """
+    truth, pred, hospitals = np.asarray(truth, float), np.asarray(pred, float), np.asarray(hospitals)
+    names = [h for h in dict.fromkeys(hospitals.tolist())]
+    keep = np.array([np.sum(hospitals == h) >= 2 for h in hospitals])
+    t_c, p_c = truth.copy(), pred.copy()
+    for h in names:
+        m = hospitals == h
+        t_c[m] -= truth[m].mean()
+        p_c[m] -= pred[m].mean()
+    t_means = np.array([truth[hospitals == h].mean() for h in names])
+    p_means = np.array([pred[hospitals == h].mean() for h in names])
+    return {
+        "within_hospital_r": pearson_r(t_c[keep], p_c[keep]) if keep.sum() >= 3 else float("nan"),
+        "between_hospital_r": pearson_r(t_means, p_means) if len(names) >= 2 else float("nan"),
+        "n_hospitals_within": int(len({h for h, k in zip(hospitals, keep) if k})),
+    }

@@ -73,7 +73,7 @@ def test_evaluate_compares_on_the_same_test_slides(cfg):
     assert out["n_below_cutoff"] == int((labels[(labels.split == "test") & (labels.slide_id != "test-0")]
                                           .truth_pct < cfg["tcga"]["catch_cutoff"]).sum())
     for method in ("pathologist", "app_raw", "app_calibrated"):
-        assert set(out["methods"][method]) == {"mae", "pearson_r", "catch_rate"}
+        assert set(out["methods"][method]) == {"mae", "pearson_r", "catch_rate", "within_hospital_r", "between_hospital_r", "n_hospitals_within"}
     for key in ("app_raw", "app_calibrated"):
         b = out["bootstrap"][key]
         assert b["n"] == cfg["tcga"]["n_bootstrap"]
@@ -259,10 +259,35 @@ def test_evaluate_adds_a_chosen_method_fit_on_train(cfg):
     scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
     out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
     m = out["methods"]["app_ridge_embedding"]
-    assert set(m) == {"mae", "pearson_r", "catch_rate"}
+    assert set(m) == {"mae", "pearson_r", "catch_rate", "within_hospital_r", "between_hospital_r", "n_hospitals_within"}
     assert out["bootstrap"]["app_ridge_embedding"]["verdict"] in ("better", "comparable", "worse")
     assert out["chosen_method"] == "ridge_embedding"
     # changing test truth leaves the method's predictions alone (it never saw test)
     moved = labels.assign(truth_pct=np.where(labels.split == "test", 50.0, labels.truth_pct))
     again = evaluate(moved, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
     assert again["predictions_fingerprint"] == out["predictions_fingerprint"]
+
+
+def test_explore_reports_within_hospital_signal(cfg):
+    labels, feats = labelled(synthetic(signal=True))
+    out = explore(labels, feats, "train", cutoff=cfg["tcga"]["catch_cutoff"], seed=cfg["seed"])
+    ridge = out["methods"]["ridge_embedding"]
+    assert ridge["within_hospital_r"] > 0.5            # it reads the slide, not just the hospital
+    assert "between_hospital_r" in ridge and "within_hospital_r" in out["methods"]["pathologist"]
+
+
+def test_evaluate_reports_within_hospital_signal_for_the_chosen_method(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    assert "within_hospital_r" in out["methods"]["app_ridge_embedding"]
+    assert "within_hospital_r" in out["methods"]["pathologist"]
+
+
+def test_explore_shows_no_within_hospital_signal_when_embeddings_only_encode_the_hospital(cfg):
+    from tests.test_purity_models import hospital_only
+
+    labels, feats = labelled(hospital_only())
+    out = explore(labels, feats, "train", cutoff=cfg["tcga"]["catch_cutoff"], seed=cfg["seed"])
+    assert abs(out["methods"]["ridge_embedding"]["within_hospital_r"]) < 0.3

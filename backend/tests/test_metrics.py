@@ -86,3 +86,37 @@ def test_verdict_needs_the_interval_to_exclude_zero():
     assert verdict(-0.5, 4.0) == "comparable"
     assert verdict(0.0, 4.0) == "comparable"
     assert verdict(-4.0, -0.5) == "worse"
+
+
+import numpy as np
+
+from project.metrics import within_between_r
+
+
+def test_within_and_between_hospital_correlation_hand_computed():
+    # Hospital A: truth 10, 20 (mean 15); B: 50, 70 (mean 60). Pred A: 12, 18 (15); B: 60, 64 (62).
+    # Within: centered truth −5, 5, −10, 10; centered pred −3, 3, −2, 2.
+    # Σxy = 15 + 15 + 20 + 20 = 70; Σx² = 250; Σy² = 26 → r = 70 / sqrt(6500) = 0.86824.
+    # Between: hospital means (15, 60) vs (15, 62): two points on a rising line → r = 1.
+    out = within_between_r([10, 20, 50, 70], [12, 18, 60, 64], ["A", "A", "B", "B"])
+    assert out["within_hospital_r"] == pytest.approx(0.86824, abs=1e-5)
+    assert out["between_hospital_r"] == pytest.approx(1.0)
+    assert out["n_hospitals_within"] == 2
+
+
+def test_a_hospital_lookup_has_no_within_hospital_signal():
+    # Predicting each hospital's average truth, plus noise unrelated to the slide, tracks hospitals only.
+    rng = np.random.default_rng(0)
+    hospitals = np.repeat(list("ABCDEFGH"), 15)
+    level = dict(zip("ABCDEFGH", rng.uniform(20, 80, 8)))
+    truth = np.array([level[h] for h in hospitals]) + rng.normal(0, 10, len(hospitals))
+    pred = np.array([level[h] for h in hospitals]) + rng.normal(0, 3, len(hospitals))
+    out = within_between_r(truth, pred, hospitals)
+    assert abs(out["within_hospital_r"]) < 0.25
+    assert out["between_hospital_r"] > 0.9
+
+
+def test_single_slide_hospitals_are_left_out_of_within():
+    # A has 3 slides on a rising line (centred: −10, 0, 10 vs −10, 0, 10 → r = 1); B and C have one slide each.
+    out = within_between_r([10, 20, 30, 50, 60], [11, 21, 31, 90, 5], ["A", "A", "A", "B", "C"])
+    assert out["n_hospitals_within"] == 1 and out["within_hospital_r"] == pytest.approx(1.0)

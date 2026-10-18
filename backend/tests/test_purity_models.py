@@ -122,3 +122,17 @@ def test_fit_predict_uses_only_the_training_rows():
     np.testing.assert_array_equal(fit_predict(train, moved, "ridge_embedding", seed=1), base)
     with pytest.raises(ValueError, match="hospital"):
         fit_predict(df, test, "ridge_embedding", seed=1)      # a test hospital inside training
+
+
+def hospital_only(n_hospitals=10, per=12, seed=0):
+    """Slides whose embedding only says which hospital they came from; purity varies by hospital."""
+    rng = np.random.default_rng(seed)
+    rows = []
+    for h in range(n_hospitals):
+        level, site = rng.uniform(20, 80), rng.normal(0, 3, 16)
+        for i in range(per):
+            row = {"slide_id": f"h{h}-{i}", "hospital": f"H{h}", "truth_pct": float(level + rng.normal(0, 10)),
+                   "pathologist_pct": 80.0, "p_tumor": 0.5, "share_tumor": 0.5, "tumor_vs_cells": 0.5}
+            row.update({f"emb_{k}": float(v) for k, v in enumerate(site + rng.normal(0, 0.3, 16))})
+            rows.append(row)
+    return pd.DataFrame(rows)
