@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import Logo from './Logo'
+import ShortcutSheet from './ShortcutSheet'
 
 const NAV = [
   { href: '/', label: 'Worklist', match: (p: string) => p === '/' || p.startsWith('/jobs') },
@@ -39,6 +40,9 @@ export default function SiteHeader() {
               </Link>
             )
           })}
+          <span className="ml-2">
+            <ShortcutSheet />
+          </span>
         </nav>
       </div>
     </header>
