@@ -1,4 +1,4 @@
-# ashby-hackathon-tumorspot
+# ashby-hackathon-hotspot
 
 A web app for the Ashby Hackathon (UIUC) that helps a pathologist decide where to cut. Upload one H&E slide or a batch (scans or photos). The backend tiles each image, scores every tile with the CONCH pathology model (zero-shot), and ranks regions by tumor content, necrosis and evenness. **Research prototype, not for clinical use.**
 
