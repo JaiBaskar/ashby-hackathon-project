@@ -156,7 +156,7 @@ export default function Results({
   }
 
   // Every change re-scores the box: pointer moves and releases right away (throttled to one request at a
-  // time), arrow keys once they stop for 300 ms.
+  // time).
   function changeFree(rect: Rect, when: 'drag' | 'now' | 'soon') {
     if (selected !== 'free') {
       // a new box (drawn, or grabbed from a suggestion): don't show the previous box's numbers
@@ -192,7 +192,7 @@ export default function Results({
   }
 
   // Pointer: switch to drawing mode. Keyboard (no pointer to drag with): place a box the size of the best
-  // region in the middle of the image and focus it, so the arrow keys take over.
+  // region in the middle of the image and focus it.
   function drawButton(e: React.MouseEvent) {
     if (drawing) return setDrawing(false)
     drewNew.current = false
@@ -212,7 +212,7 @@ export default function Results({
     }
   }
 
-  // Keyboard shortcuts (listed in the ? sheet). They stay out of the way while you type in a field.
+  // Keyboard shortcuts (listed in the header's shortcut sheet). They stay out of the way while you type in a field.
   const keys = useRef<(e: KeyboardEvent) => void>(() => {})
   keys.current = (e: KeyboardEvent) => {
     const t = e.target as HTMLElement | null
@@ -334,7 +334,7 @@ export default function Results({
           <p className="mt-2 text-sm text-ink-muted">
             {drawing
               ? 'Drag across the slide to draw your box. Escape cancels.'
-              : 'Pick a box to see why it was chosen; drag its corners or edges to reshape it. Press ? for shortcuts.'}
+              : 'Pick a box to see why it was chosen; drag its corners or edges to reshape it.'}
           </p>
 
           <div className="mt-6 flex flex-wrap items-center justify-between gap-x-6 gap-y-3">

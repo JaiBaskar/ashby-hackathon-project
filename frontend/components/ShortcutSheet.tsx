@@ -7,31 +7,18 @@ export const SHORTCUTS: [string[], string][] = [
   [['H'], 'Toggle the tumor heatmap'],
   [['N'], 'Toggle the necrosis heatmap'],
   [['D'], 'Draw your own box'],
-  [['←', '→', '↑', '↓'], 'Move your box (Shift: resize it)'],
   [['Del'], 'Remove your box'],
   [['+', '−', '0'], 'Zoom in, out, fit'],
   [['J'], 'Next case'],
   [['K'], 'Previous case'],
   [['P'], 'Open the sampling sheet'],
   [['Esc'], 'Stop drawing, close this sheet'],
-  [['?'], 'Show these shortcuts'],
 ]
 
-// The ? sheet. Lives in the header, so it works on every page.
+// The shortcut sheet, opened from the ? button in the header, so it works on every page.
 export default function ShortcutSheet() {
   const dialog = useRef<HTMLDialogElement>(null)
   const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null
-      if (e.key !== '?' || e.ctrlKey || e.metaKey || (t && (t.closest('input, textarea, select') || t.isContentEditable))) return
-      e.preventDefault()
-      setOpen(true)
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
 
   // While open: Escape closes it from anywhere, and focus starts on its Close button.
   useEffect(() => {
@@ -48,7 +35,7 @@ export default function ShortcutSheet() {
         type="button"
         onClick={() => setOpen(true)}
         aria-label="Keyboard shortcuts"
-        title="Keyboard shortcuts (?)"
+        title="Keyboard shortcuts"
         className="inline-flex size-9 items-center justify-center rounded-sm border border-stage-line font-mono text-sm text-stage-muted transition-colors duration-fast hover:text-stage-ink"
       >
         ?

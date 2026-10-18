@@ -13,7 +13,7 @@ What a pathologist gets:
 - **Boxes you can reshape:** grab any box by a corner or edge, or draw your own; the numbers are re-measured while you drag, from the stored tile scores. Suggestions can also be re-ranked at 0.5, 1 or 2 mm to match a punch.
 - **Sampling sheet:** a print-ready page for the histotech, with the instruction, the slide with numbered boxes and a 1 mm scale bar, the region table, notes and sign-off lines. **Copy summary** puts the same numbers on the clipboard for the report.
 - **Case labels, notes and reviewed ticks stay in your browser**, never on the server or in the shared history, because they can identify a patient.
-- **Keyboard first:** 1–9 regions, H tumor heatmap, N necrosis heatmap, D draw, +/−/0 zoom, J/K next/previous case, P sheet, ? for the list.
+- **Keyboard first:** 1–9 regions, H tumor heatmap, N necrosis heatmap, D draw, +/−/0 zoom, J/K next/previous case, P sheet.
 
 ## How it fits together
 
