@@ -120,3 +120,30 @@ def test_single_slide_hospitals_are_left_out_of_within():
     # A has 3 slides on a rising line (centred: −10, 0, 10 vs −10, 0, 10 → r = 1); B and C have one slide each.
     out = within_between_r([10, 20, 30, 50, 60], [11, 21, 31, 90, 5], ["A", "A", "A", "B", "C"])
     assert out["n_hospitals_within"] == 1 and out["within_hospital_r"] == pytest.approx(1.0)
+
+
+from project.metrics import bootstrap_r_diff
+
+
+def test_r_difference_bootstrap_identical_methods_is_zero():
+    truth = [10, 25, 40, 55, 70, 85]
+    pred = [15, 20, 45, 50, 75, 80]
+    out = bootstrap_r_diff(truth, pred, pred, n=200, seed=1)
+    assert out["diff"] == 0.0 and out["ci_low"] == 0.0 and out["ci_high"] == 0.0 and out["n"] == 200
+
+
+def test_r_difference_bootstrap_point_value_and_seed():
+    # a tracks truth exactly (r = 1); b is reversed (r = −1): r(a) − r(b) = 2 on every resample with ≥ 2 values.
+    truth = [10.0, 20, 30, 40, 50, 60, 70, 80]
+    a, b = truth, truth[::-1]
+    out = bootstrap_r_diff(truth, a, b, n=300, seed=4)
+    assert out["diff"] == pytest.approx(2.0)
+    assert out["ci_low"] == pytest.approx(2.0) and out["ci_high"] == pytest.approx(2.0)
+    rng_truth = [10, 30, 45, 60, 75, 90, 20, 50]
+    x, y = [12, 28, 50, 58, 70, 95, 25, 40], [30, 25, 60, 70, 70, 95, 40, 45]
+    assert bootstrap_r_diff(rng_truth, x, y, n=300, seed=4) == bootstrap_r_diff(rng_truth, x, y, n=300, seed=4)
+
+
+def test_r_difference_bootstrap_with_constant_truth_is_undefined_not_an_error():
+    out = bootstrap_r_diff([50, 50, 50, 50], [10, 20, 30, 40], [40, 30, 20, 10], n=50, seed=1)
+    assert np.isnan(out["diff"]) and np.isnan(out["ci_low"]) and np.isnan(out["ci_high"])

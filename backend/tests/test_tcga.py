@@ -317,8 +317,39 @@ def test_test_predictions_are_the_slides_and_numbers_evaluate_used(cfg):
     scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
     out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
     pred = prediction_table(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
-    assert list(pred.columns) == ["slide_id", "hospital", "truth_pct", "pathologist", "app_raw", "app_calibrated",
-                                  "dummy", "app_ridge_embedding"]
+    assert list(pred.columns) == ["slide_id", "hospital", "truth_pct", "pathologist", "pathologist_calibrated",
+                                  "app_raw", "app_calibrated", "dummy", "app_ridge_embedding"]
     assert len(pred) == out["n_slides"]
     for m in ("pathologist", "dummy", "app_ridge_embedding"):
         assert np.abs(pred[m] - pred["truth_pct"]).mean() == pytest.approx(out["methods"][m]["mae"])
+
+
+# --- a fair pathologist baseline and a ranking comparison ---------------------------------------
+
+def test_calibrated_pathologist_is_fit_on_train_only(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    pred = prediction_table(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    train = labels[labels.split == "train"]
+    slope, intercept = fit_mapping(train["pathologist_pct"], train["truth_pct"])
+    test = labels[labels.split == "test"].set_index("slide_id").loc[pred["slide_id"]]
+    np.testing.assert_allclose(pred["pathologist_calibrated"], apply_mapping(test["pathologist_pct"], slope, intercept))
+    moved = labels.assign(truth_pct=np.where(labels.split == "test", 50.0, labels.truth_pct))   # test truth unused
+    again = prediction_table(moved, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    np.testing.assert_allclose(again["pathologist_calibrated"], pred["pathologist_calibrated"])
+
+
+def test_evaluate_compares_ranking_and_the_calibrated_pathologist(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    assert "pathologist_calibrated" in out["methods"]
+    r = out["bootstrap_r_vs_pathologist"]["app_ridge_embedding"]
+    assert r["diff"] == pytest.approx(out["methods"]["app_ridge_embedding"]["pearson_r"]
+                                      - out["methods"]["pathologist"]["pearson_r"])
+    assert r["ci_low"] <= r["diff"] <= r["ci_high"] and r["verdict"] in ("better", "comparable", "worse")
+    c = out["bootstrap_vs_pathologist_calibrated"]["app_ridge_embedding"]
+    assert c["diff"] == pytest.approx(out["methods"]["pathologist_calibrated"]["mae"]
+                                      - out["methods"]["app_ridge_embedding"]["mae"])

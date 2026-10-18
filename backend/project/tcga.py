@@ -28,7 +28,7 @@ from project import gdc
 from project.config import load_config, repo_path
 from project.ingest import open_slide
 from project.labels import assign_splits, build_labels, check_labels, read_absolute, select_slides
-from project.metrics import bootstrap_mae_diff, catch_rate, mae, pearson_r, verdict, within_between_r
+from project.metrics import bootstrap_mae_diff, bootstrap_r_diff, catch_rate, mae, pearson_r, verdict, within_between_r
 from project.model import load_backend
 from project.purity_models import METHODS, cross_validate, fit_predict, slide_features
 from project.tiling import build_grid, read_tiles
@@ -118,8 +118,11 @@ def _test_predictions(labels, scores, tcga_cfg, seed, features=None, method=None
         raise ValueError("no scored test slides")
 
     slope, intercept = fit_mapping(train["app_tumor_pct"], train["truth_pct"])
+    # A fair pathologist baseline: their % with a straight-line correction for systematic bias, fit on train only.
+    p_slope, p_intercept = fit_mapping(train["pathologist_pct"], train["truth_pct"])
     preds = {
         "pathologist": test["pathologist_pct"].to_numpy(),
+        "pathologist_calibrated": apply_mapping(test["pathologist_pct"], p_slope, p_intercept),
         "app_raw": test["app_tumor_pct"].to_numpy(),
         "app_calibrated": apply_mapping(test["app_tumor_pct"], slope, intercept),
         "dummy": np.full(len(test), float(np.median(train["truth_pct"]))),
@@ -127,7 +130,7 @@ def _test_predictions(labels, scores, tcga_cfg, seed, features=None, method=None
     if method is not None:
         preds[f"app_{method}"] = fit_predict(train, test, method, seed)
     info = {"n_without": int(len(test_all) - len(test)), "n_train": int(len(train)), "slope": slope,
-            "intercept": intercept}
+            "intercept": intercept, "pathologist_slope": p_slope, "pathologist_intercept": p_intercept}
     return test, preds, info
 
 
@@ -160,6 +163,8 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
         "catch_cutoff": cutoff,
         "mapping": {"slope": info["slope"], "intercept": info["intercept"], "fit_on": "train",
                     "n_slides": info["n_train"]},
+        "pathologist_mapping": {"slope": info["pathologist_slope"], "intercept": info["pathologist_intercept"],
+                                "fit_on": "train", "n_slides": info["n_train"]},
         "methods": {m: {**method_metrics(truth, p, cutoff), **within_between_r(truth, p, test["hospital"].to_numpy())}
                     for m, p in preds.items()},
         "bootstrap": {},
@@ -179,6 +184,17 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
         b["verdict"] = verdict(b["ci_low"], b["ci_high"])
         b["meaning"] = "dummy MAE − method MAE in points (> 0: method beats always guessing the train median)"
         out["bootstrap_vs_dummy"] = {f"app_{method}": b}
+        m = f"app_{method}"
+        b = bootstrap_mae_diff(truth, preds["pathologist_calibrated"], preds[m], n=n_boot, seed=seed)
+        b["verdict"] = verdict(b["ci_low"], b["ci_high"])
+        b["meaning"] = ("bias-corrected pathologist MAE − method MAE in points (> 0: method closer to ABSOLUTE even after "
+                        "removing the pathologists' systematic over-estimate; correction fit on train)")
+        out["bootstrap_vs_pathologist_calibrated"] = {m: b}
+        b = bootstrap_r_diff(truth, preds[m], preds["pathologist"], n=n_boot, seed=seed)
+        b["verdict"] = verdict(b["ci_low"], b["ci_high"])
+        b["meaning"] = ("method Pearson r − pathologist Pearson r (> 0: method ranks slides by ABSOLUTE purity better); "
+                        "unaffected by the pathologists' bias")
+        out["bootstrap_r_vs_pathologist"] = {m: b}
     return out
 
 

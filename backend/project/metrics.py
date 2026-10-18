@@ -80,3 +80,16 @@ def within_between_r(truth, pred, hospitals):
         "between_hospital_r": pearson_r(t_means, p_means) if len(names) >= 2 else float("nan"),
         "n_hospitals_within": int(len({h for h, k in zip(hospitals, keep) if k})),
     }
+
+
+def bootstrap_r_diff(truth, a, b, n, seed):
+    """Pearson r of a minus Pearson r of b, with a 95% percentile interval from n seeded paired resamples.
+
+    Resamples where either r is undefined (a constant prediction) are skipped.
+    """
+    truth, a, b = (np.asarray(v, float) for v in (truth, a, b))
+    idx = np.random.default_rng(seed).integers(0, len(truth), (n, len(truth)))
+    diffs = [pearson_r(truth[i], a[i]) - pearson_r(truth[i], b[i]) for i in idx]
+    diffs = np.array([d for d in diffs if np.isfinite(d)])
+    lo, hi = np.percentile(diffs, [2.5, 97.5]) if diffs.size else (np.nan, np.nan)  # e.g. constant truth
+    return {"diff": float(pearson_r(truth, a) - pearson_r(truth, b)), "ci_low": float(lo), "ci_high": float(hi), "n": n}
