@@ -227,3 +227,9 @@ test('names the organ the prompts were chosen for, when the result has one', () 
   render(<Results result={makeResult({ organ: undefined })} />)   // recorded before the organ picker
   expect(screen.queryByText(/organ:/i)).not.toBeInTheDocument()
 })
+
+test('the region panel score has a "how it is calculated" help button next to it', () => {
+  render(<Results result={makeResult()} />)
+  const panel = within(screen.getByRole('region', { name: /region details/i }))
+  expect(panel.getByRole('button', { name: 'How the score is calculated' })).toBeInTheDocument()
+})

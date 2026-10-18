@@ -1,5 +1,6 @@
 import { CLASSES, type Composition, type Region, type Result } from '@/lib/api'
 import { CLASS_LABELS, pct } from '@/lib/format'
+import ScoreHelp from './ScoreHelp'
 import ThresholdVerdict from './ThresholdVerdict'
 import { button } from './ui'
 
@@ -76,8 +77,9 @@ export default function RegionPanel({
             <span className="rounded-sm bg-accent px-1.5 py-0.5 font-sans text-xs font-semibold text-accent-ink">Best</span>
           )}
         </h2>
-        <p className="text-right text-sm text-ink-muted">
+        <p className="flex items-center gap-1.5 text-right text-sm text-ink-muted">
           Score <span className="num text-lg font-semibold text-ink">{region.score.toFixed(2)}</span>
+          <ScoreHelp />
         </p>
       </div>
 

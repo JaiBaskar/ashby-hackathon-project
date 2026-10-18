@@ -13,7 +13,15 @@ export function readAppSettings(frontendDir: string) {
   const organs = /^organs:\s*\[([^\]]*)\]/m.exec(config)?.[1].split(',').map((o) => o.trim()).filter(Boolean)
   const defaultOrgan = /^default_organ:\s*(\S+)/m.exec(config)?.[1]
   if (!organs?.length || !defaultOrgan) throw new Error('config.yaml needs organs and default_organ')
-  return { maxUploadMb: num('max_upload_mb'), defaultMpp: num('default_mpp'), organs, defaultOrgan }
+  // The ranking score's weights, for the "how is the score calculated" help (backend/project/regions.py).
+  const weightsBlock = /^weights:\s*\n((?:[ \t]+\S.*\n?)+)/m.exec(config)?.[1] ?? ''
+  const weight = (key: string) => {
+    const v = Number(new RegExp(`^\\s+${key}:\\s*([\\d.]+)`, 'm').exec(weightsBlock)?.[1])
+    if (Number.isNaN(v) || !weightsBlock.includes(key)) throw new Error(`config.yaml needs weights.${key}`)
+    return v
+  }
+  const scoreWeights = { necrosis: weight('necrosis'), variation: weight('variation') }
+  return { maxUploadMb: num('max_upload_mb'), defaultMpp: num('default_mpp'), organs, defaultOrgan, scoreWeights }
 }
 
 // Names of the variables next.config's `env` (and the Vitest config) sets for the browser code.
@@ -24,5 +32,7 @@ export function settingsEnv(frontendDir: string): Record<string, string> {
     DEFAULT_MPP: String(s.defaultMpp),
     ORGANS: s.organs.join(','),
     DEFAULT_ORGAN: s.defaultOrgan,
+    SCORE_WEIGHT_NECROSIS: String(s.scoreWeights.necrosis),
+    SCORE_WEIGHT_VARIATION: String(s.scoreWeights.variation),
   }
 }
