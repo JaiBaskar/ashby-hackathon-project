@@ -124,6 +124,15 @@ test('the heatmap toggle shows and hides the tumor overlay', () => {
   expect(screen.queryByTestId('heatmap')).not.toBeInTheDocument()
 })
 
+test('the heatmap legend shows the tumor-probability range its colors span', () => {
+  render(<Results result={makeResult({ heatmap_range: { low: 0.72, high: 0.97 } })} />)
+  expect(screen.queryByTestId('heatmap-legend')).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('switch', { name: /tumor heatmap/i }))
+  const legend = screen.getByTestId('heatmap-legend')
+  expect(legend).toHaveTextContent(/tumor probability/i)
+  expect(legend).toHaveTextContent(/72%.*97%/)
+})
+
 describe('box size', () => {
   const fetchMock = vi.fn()
   beforeEach(() => {

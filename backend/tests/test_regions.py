@@ -8,6 +8,8 @@ import pytest
 
 from project.config import load_config
 from project.regions import (
+    HEATMAP_MAX_ALPHA,
+    HEATMAP_MIN_SPAN,
     HEATMAP_RGB,
     box_tiles,
     default_box_um,
@@ -17,6 +19,7 @@ from project.regions import (
     region_score,
     score_grid,
     slide_composition,
+    heatmap_range,
     tumor_heatmap,
 )
 from project.tiling import Tile
@@ -308,11 +311,11 @@ def test_heatmap_places_tile_at_its_display_position(cfg):
     probs = np.full((4, 6, len(classes)), np.nan)
     probs[1, 3] = grid(cfg, 1, 1, tumor=0.9)[0, 0]
     # 100 original px per tile, display downsampled 2x -> 50 display px per tile; display is 300 x 200.
-    img = tumor_heatmap(probs, classes, tile_size=100, scale=2.0, display_size=(300, 200))
+    img = tumor_heatmap(probs, classes, tile_size=100, scale=2.0, display_size=(300, 200), value_range=(0.0, 1.0))
     assert img.size == (300, 200) and img.mode == "RGBA"
     arr = np.asarray(img)
     assert arr.shape == (200, 300, 4)
-    assert arr[1 * 50 + 25, 3 * 50 + 25, 3] > 150       # inside tile (row 1, col 3): opaque
+    assert arr[1 * 50 + 25, 3 * 50 + 25, 3] > 100       # inside tile (row 1, col 3): clearly tinted
     assert arr[3 * 50 + 25, 1 * 50 + 25, 3] == 0        # the transposed spot stays clear
     assert arr[25, 25, 3] == 0
 
@@ -322,6 +325,98 @@ def test_heatmap_opacity_follows_tumor(cfg):
     probs = np.concatenate([grid(cfg, 1, 1, tumor=0.2), grid(cfg, 1, 1, tumor=0.8)], axis=1)
     arr = np.asarray(tumor_heatmap(probs, classes, tile_size=10, scale=1.0, display_size=(20, 10)))
     assert arr[5, 15, 3] > arr[5, 5, 3]
+
+
+def tumor_grid(cfg, values):
+    """[rows, cols, n_classes] with the given tumor probabilities (NaN = not analyzed)."""
+    values = np.asarray(values, float)
+    probs = grid(cfg, *values.shape, tumor=0.5)
+    probs[..., cfg["classes"].index("tumor")] = values
+    probs[np.isnan(values)] = np.nan
+    return probs
+
+
+def alpha_map(cfg, values, tile=20, **kw):
+    values = np.asarray(values, float)
+    rows, cols = values.shape
+    img = tumor_heatmap(tumor_grid(cfg, values), cfg["classes"], tile_size=tile, scale=1.0,
+                        display_size=(cols * tile, rows * tile), **kw)
+    return np.asarray(img)[..., 3].astype(int)
+
+
+# The color scale: stretched over the slide's own spread, so a slide that is all "fairly high" still shows contrast.
+
+def test_heatmap_range_is_the_slides_spread_widened_to_a_minimum():
+    values = np.linspace(0.78, 0.90, 200)
+    lo, hi = heatmap_range(values)
+    assert hi - lo == pytest.approx(HEATMAP_MIN_SPAN)
+    assert (lo + hi) / 2 == pytest.approx(0.84, abs=0.01)   # centered on the slide's spread
+
+
+def test_heatmap_range_keeps_a_wide_spread_and_ignores_outliers():
+    values = np.concatenate([np.linspace(0.1, 0.9, 1000), [0.0, 1.0]])
+    lo, hi = heatmap_range(values)
+    assert lo == pytest.approx(np.percentile(values, 5)) and hi == pytest.approx(np.percentile(values, 95))
+
+
+def test_heatmap_range_stays_within_0_and_1():
+    assert heatmap_range(np.full(50, 0.98)) == pytest.approx((1 - HEATMAP_MIN_SPAN, 1.0))
+    assert heatmap_range(np.full(50, 0.01)) == pytest.approx((0.0, HEATMAP_MIN_SPAN))
+    assert heatmap_range(np.array([np.nan])) == (0.0, 1.0)
+
+
+def test_heatmap_shows_contrast_on_a_uniformly_high_slide(cfg):
+    # The demo model scored a real slide 0.78–0.90 everywhere; with opacity ∝ probability every tile looked the same.
+    a = alpha_map(cfg, [[0.78, 0.84, 0.90]] * 3)
+    low, high = a[30, 10], a[30, 50]
+    assert high >= 3 * max(low, 1)
+
+
+def test_heatmap_never_hides_the_tissue(cfg):
+    a = alpha_map(cfg, [[1.0] * 3] * 3, value_range=(0.0, 1.0))
+    assert a.max() <= round(HEATMAP_MAX_ALPHA * 255) <= 0.7 * 255
+
+
+def test_tiles_below_the_range_are_clear(cfg):
+    a = alpha_map(cfg, [[0.2] * 3 + [0.9] * 3] * 3, value_range=(0.5, 1.0))
+    assert a[30, 10] == 0 and a[30, 110] > 0
+
+
+def test_heatmap_has_no_seams_between_matching_tiles(cfg):
+    a = alpha_map(cfg, [[0.9] * 4] * 3, value_range=(0.0, 1.0))
+    row = a[30, 20:60]
+    assert row.max() - row.min() <= 2
+
+
+def test_heatmap_edges_fade_instead_of_stepping(cfg):
+    nan = np.nan
+    values = [[nan] * 5] + [[nan, 0.9, 0.9, 0.9, nan]] * 3 + [[nan] * 5]
+    row = alpha_map(cfg, values, value_range=(0.0, 1.0))[50]
+    assert np.abs(np.diff(row)).max() < row.max() / 3
+    assert ((row > 0) & (row < row.max() * 0.9)).sum() >= 8
+
+
+def test_heatmap_fades_where_the_tile_grid_ends_before_the_image(cfg):
+    # Only whole tiles are cut, so a strip at the right and bottom is never analyzed. The overlay must fade out
+    # into it, not stop at the grid's edge (a real slide showed a full-strength cut-off line there).
+    probs = tumor_grid(cfg, [[0.9] * 3] * 3)
+    img = tumor_heatmap(probs, cfg["classes"], tile_size=20, scale=1.0, display_size=(75, 75), value_range=(0.0, 1.0))
+    a = np.asarray(img)[..., 3].astype(int)
+    peak = a.max()
+    assert np.abs(np.diff(a[30, :], axis=0)).max() < peak / 3      # across the right edge of the grid
+    assert np.abs(np.diff(a[:, 30], axis=0)).max() < peak / 3      # across the bottom edge
+    # The fade is centered on the grid's edge (like tissue edges): about half strength there, near clear inside the strip.
+    assert a[30, 59] <= peak * 0.6 and a[59, 30] <= peak * 0.6
+    assert a[30, 66] < peak * 0.1 and a[66, 30] < peak * 0.1
+    assert a[5, 5] > peak * 0.8                                     # the image's own top-left border stays tinted
+
+
+def test_heatmap_corners_are_rounded_not_square(cfg):
+    nan = np.nan
+    values = [[nan] * 5] + [[nan, 0.9, 0.9, 0.9, nan]] * 3 + [[nan] * 5]
+    a = alpha_map(cfg, values, value_range=(0.0, 1.0))
+    # Tissue spans 20..80. Just inside the corner is fainter than just inside the middle of an edge.
+    assert a[23, 23] < a[23, 50] * 0.75
 
 
 def test_slide_composition_is_the_mean_over_tiles_and_sums_to_one(cfg):

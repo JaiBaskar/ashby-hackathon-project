@@ -26,6 +26,7 @@ export interface Result {
   model: string
   image: { url: string; width: number; height: number; mpp: number | null; mpp_estimated: boolean }
   heatmap_url: string
+  heatmap_range: { low: number; high: number } // tumor probability at the overlay's clear and strongest ends
   regions_url: string
   box_um: number
   box_sizes_um: number[]

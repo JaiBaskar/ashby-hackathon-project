@@ -19,7 +19,7 @@ from project.config import load_config, repo_path
 from project.ingest import SUPPORTED_EXTENSIONS, IngestError, open_slide
 from project.model import load_backend
 from project.regions import (
-    box_tiles, default_box_um, rank_regions, score_grid, slide_composition, tumor_heatmap,
+    box_tiles, default_box_um, heatmap_range, rank_regions, score_grid, slide_composition, tumor_heatmap,
 )
 from project.tiling import NoTissueError, build_grid, read_tiles
 
@@ -44,6 +44,12 @@ class TileInfo(BaseModel):
     capped: bool
 
 
+class HeatmapRange(BaseModel):
+    """Tumor probability at the heatmap's clear (low) and strongest (high) ends, for the legend."""
+    low: float
+    high: float
+
+
 class Region(BaseModel):
     rank: int
     is_best: bool
@@ -63,6 +69,7 @@ class Result(BaseModel):
     model: str
     image: ImageInfo
     heatmap_url: str
+    heatmap_range: HeatmapRange
     regions_url: str
     box_um: float
     box_sizes_um: list[float]
@@ -149,12 +156,15 @@ def run_job(job, job_id, slide, path, cfg, backend):
         grid_probs = score_grid(tiles, probs, grid.tissue.shape)
         job.ranking = (grid_probs, grid.tissue, grid.tile_size, grid.scale)
         regions, note = rank_regions(grid_probs, grid.tissue, cfg, grid.tile_size, grid.scale)
-        job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size))
+        low, high = heatmap_range(grid_probs[..., classes.index("tumor")])
+        job.heatmap_png = png(tumor_heatmap(grid_probs, classes, grid.tile_size, grid.scale, grid.display.size,
+                                            value_range=(low, high)))
         result = Result(
             model=backend.name,
             image=ImageInfo(url=f"/api/jobs/{job_id}/display.png", width=grid.display.width,
                             height=grid.display.height, mpp=slide.mpp, mpp_estimated=slide.mpp_estimated),
             heatmap_url=f"/api/jobs/{job_id}/heatmap.png",
+            heatmap_range=HeatmapRange(low=low, high=high),
             regions_url=f"/api/jobs/{job_id}/regions",
             box_um=default_box_um(cfg),
             box_sizes_um=cfg["box_sizes_um"],

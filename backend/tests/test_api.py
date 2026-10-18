@@ -60,6 +60,7 @@ def test_upload_runs_to_done_and_result_validates(client):
     assert result.regions and result.regions[0].is_best
     assert result.image.url == f"/api/jobs/{job_id}/display.png"
     assert result.heatmap_url == f"/api/jobs/{job_id}/heatmap.png"
+    assert 0.0 <= result.heatmap_range.low < result.heatmap_range.high <= 1.0
     assert result.image.mpp_estimated is True
     assert sum(result.slide_composition.values()) == pytest.approx(1.0)
     for region in result.regions:

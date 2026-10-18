@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useRef, useState } from 'react'
 import { errorMessage, type RegionsAtSize, type Result } from '@/lib/api'
-import { boxLabel } from '@/lib/format'
+import { boxLabel, pct } from '@/lib/format'
 import RegionPanel from './RegionPanel'
 import SlideViewer from './SlideViewer'
 import { button, DemoBadge, ResearchNotice } from './ui'
@@ -130,6 +130,20 @@ export default function Results({ result: initial }: { result: Result }) {
       <div className="mt-6 grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
         <div>
           <SlideViewer result={result} selected={selected} onSelect={setSelected} showHeatmap={showHeatmap} />
+          {showHeatmap && (
+            <div data-testid="heatmap-legend" className="mt-2 flex animate-enter items-center gap-2 text-sm">
+              <span className="text-ink-muted">Tumor probability</span>
+              <span className="tabular-nums">{pct(result.heatmap_range.low)}</span>
+              {/* Same amber and top opacity as the backend overlay (HEATMAP_RGB, HEATMAP_MAX_ALPHA in regions.py). */}
+              <span
+                aria-hidden
+                className="h-2.5 w-24 rounded-full border border-line"
+                style={{ background: 'linear-gradient(to right, rgba(255, 196, 0, 0), rgba(255, 196, 0, 0.65))' }}
+              />
+              <span className="tabular-nums">{pct(result.heatmap_range.high)}</span>
+              <span className="text-ink-muted">· scaled to this slide</span>
+            </div>
+          )}
           <p className="mt-2 text-sm text-ink-muted">Select a numbered box to see why it was chosen.</p>
         </div>
         <div className="lg:sticky lg:top-6">{region && <RegionPanel region={region} result={result} />}</div>
