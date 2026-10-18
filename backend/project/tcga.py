@@ -99,12 +99,8 @@ def method_metrics(truth, pred, cutoff):
     return {"mae": mae(truth, pred), "pearson_r": pearson_r(truth, pred), "catch_rate": catch_rate(truth, pred, cutoff)}
 
 
-def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
-    """App (raw and mapped) vs. pathologist vs. ABSOLUTE, on exactly the same test slides (AGENTS.md §9).
-
-    With `features` and a `method` (chosen beforehand with `explore` on train), that method is fit on the train
-    hospitals and reported too. A dummy (train median) is always reported as the bar to beat.
-    """
+def _test_predictions(labels, scores, tcga_cfg, seed, features=None, method=None):
+    """The test slides and every method's prediction for them; every method is fit on train hospitals only."""
     split_hospitals = labels.groupby("split")["hospital"].apply(set)
     shared = split_hospitals.get("train", set()) & split_hospitals.get("test", set())
     if shared:
@@ -122,8 +118,6 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
         raise ValueError("no scored test slides")
 
     slope, intercept = fit_mapping(train["app_tumor_pct"], train["truth_pct"])
-    cutoff, n_boot = tcga_cfg["catch_cutoff"], tcga_cfg["n_bootstrap"]
-    truth = test["truth_pct"].to_numpy()
     preds = {
         "pathologist": test["pathologist_pct"].to_numpy(),
         "app_raw": test["app_tumor_pct"].to_numpy(),
@@ -132,15 +126,40 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
     }
     if method is not None:
         preds[f"app_{method}"] = fit_predict(train, test, method, seed)
+    info = {"n_without": int(len(test_all) - len(test)), "n_train": int(len(train)), "slope": slope,
+            "intercept": intercept}
+    return test, preds, info
+
+
+def prediction_table(labels, scores, tcga_cfg, seed, features=None, method=None):
+    """Per-slide test predictions (patient-level: kept in TCGA_DIR, never committed) for an independent recheck."""
+    test, preds, _ = _test_predictions(labels, scores, tcga_cfg, seed, features, method)
+    table = test[["slide_id", "hospital", "truth_pct"]].reset_index(drop=True)
+    for m, p in preds.items():
+        table[m] = np.asarray(p, float)
+    return table
+
+
+def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
+    """App (raw and mapped) vs. pathologist vs. ABSOLUTE, on exactly the same test slides (AGENTS.md §9).
+
+    With `features` and a `method` (chosen beforehand with `explore` on train), that method is fit on the train
+    hospitals and reported too. A dummy (train median) is always reported as the bar to beat, and the chosen
+    method is bootstrapped against it as well as against the pathologist.
+    """
+    test, preds, info = _test_predictions(labels, scores, tcga_cfg, seed, features, method)
+    cutoff, n_boot = tcga_cfg["catch_cutoff"], tcga_cfg["n_bootstrap"]
+    truth = test["truth_pct"].to_numpy()
     out = {
         "question": "Does the app's whole-slide tumor % track ABSOLUTE purity better than the pathologist's %?",
         "split": "test",
         "n_slides": int(len(test)),
         "n_hospitals": int(test["hospital"].nunique()),
         "n_below_cutoff": int((truth < cutoff).sum()),
-        "n_test_slides_without_app_score": int(len(test_all) - len(test)),
+        "n_test_slides_without_app_score": info["n_without"],
         "catch_cutoff": cutoff,
-        "mapping": {"slope": slope, "intercept": intercept, "fit_on": "train", "n_slides": int(len(train))},
+        "mapping": {"slope": info["slope"], "intercept": info["intercept"], "fit_on": "train",
+                    "n_slides": info["n_train"]},
         "methods": {m: {**method_metrics(truth, p, cutoff), **within_between_r(truth, p, test["hospital"].to_numpy())}
                     for m, p in preds.items()},
         "bootstrap": {},
@@ -155,6 +174,11 @@ def evaluate(labels, scores, tcga_cfg, seed, features=None, method=None):
         b["verdict"] = verdict(b["ci_low"], b["ci_high"])
         b["meaning"] = "pathologist MAE − app MAE in points (> 0: app closer to ABSOLUTE); 95% percentile interval"
         out["bootstrap"][m] = b
+    if method is not None:
+        b = bootstrap_mae_diff(truth, preds["dummy"], preds[f"app_{method}"], n=n_boot, seed=seed)
+        b["verdict"] = verdict(b["ci_low"], b["ci_high"])
+        b["meaning"] = "dummy MAE − method MAE in points (> 0: method beats always guessing the train median)"
+        out["bootstrap_vs_dummy"] = {f"app_{method}": b}
     return out
 
 
@@ -351,6 +375,9 @@ def cmd_evaluate(cfg, args):
         sys.exit(f"{scores_path(cfg).name} has model(s) {models}; the validation must use CONCH.")
     features = pd.read_csv(features_path(cfg)) if args.method else None
     result = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=features, method=args.method)
+    if args.method:  # per-slide numbers for an independent recheck; patient-level, so they stay in TCGA_DIR
+        prediction_table(labels, scores, cfg["tcga"], cfg["seed"], features, args.method).to_csv(
+            tcga_dir(cfg) / f"test_predictions_{cfg['prompt_set']}.csv", index=False)
     result.update(project=cfg["tcga"]["project"], slide_kinds=cfg["tcga"]["slide_kinds"], model=models,
                   organ=cfg["tcga"]["organ"], prompt_set=cfg["prompt_set"])
     out = repo_path(cfg["paths"]["results"]) / f"tcga_validation_{cfg['prompt_set']}.json"

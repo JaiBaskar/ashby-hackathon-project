@@ -291,3 +291,34 @@ def test_explore_shows_no_within_hospital_signal_when_embeddings_only_encode_the
     labels, feats = labelled(hospital_only())
     out = explore(labels, feats, "train", cutoff=cfg["tcga"]["catch_cutoff"], seed=cfg["seed"])
     assert abs(out["methods"]["ridge_embedding"]["within_hospital_r"]) < 0.3
+
+
+# --- chosen method vs the dummy, and per-slide predictions for an independent check --------------
+
+from project.tcga import prediction_table
+
+
+def test_evaluate_bootstraps_the_chosen_method_against_the_dummy(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    b = out["bootstrap_vs_dummy"]["app_ridge_embedding"]
+    assert b["n"] == cfg["tcga"]["n_bootstrap"]
+    assert b["ci_low"] <= b["diff"] <= b["ci_high"]
+    expected = out["methods"]["dummy"]["mae"] - out["methods"]["app_ridge_embedding"]["mae"]
+    assert b["diff"] == pytest.approx(expected)
+    assert b["verdict"] in ("better", "comparable", "worse") and "dummy" in b["meaning"]
+
+
+def test_test_predictions_are_the_slides_and_numbers_evaluate_used(cfg):
+    df = synthetic(signal=True)
+    labels, feats = labelled(df, test_hospitals=("H6", "H7", "H8", "H9"))
+    scores = feats[["slide_id"]].assign(app_tumor_pct=df["p_tumor"] * 100, model="conch")
+    out = evaluate(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    pred = prediction_table(labels, scores, cfg["tcga"], seed=cfg["seed"], features=feats, method="ridge_embedding")
+    assert list(pred.columns) == ["slide_id", "hospital", "truth_pct", "pathologist", "app_raw", "app_calibrated",
+                                  "dummy", "app_ridge_embedding"]
+    assert len(pred) == out["n_slides"]
+    for m in ("pathologist", "dummy", "app_ridge_embedding"):
+        assert np.abs(pred[m] - pred["truth_pct"]).mean() == pytest.approx(out["methods"][m]["mae"])
